@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "teams": {
+    "product-owner": {
+      "description": "Turns product intent into stories, requirements, and acceptance criteria.",
+      "behaviors": {
+        "story": {
+          "routeProfile": "product_planning",
+          "instructions": "Use product docs, existing flows, and domain terms to shape a user story."
+        },
+        "requirements": {
+          "routeProfile": "requirements_planning",
+          "instructions": "Find existing requirements, acceptance criteria, contracts, and open questions."
+        }
+      }
+    },
+    "project-manager": {
+      "description": "Breaks work down, routes implementation, reviews changes, and hunts bugs.",
+      "behaviors": {
+        "breakdown": {
+          "routeProfile": "technical_breakdown",
+          "instructions": "Identify architecture boundaries, affected areas, dependency order, and test strategy."
+        },
+        "implement": {
+          "routeProfile": "implementation",
+          "instructions": "Read the route pack before editing and verify against relevant tests."
+        },
+        "review": {
+          "routeProfile": "code_review",
+          "instructions": "Prioritize risks, tests, contracts, and architecture boundary violations."
+        },
+        "bugfix": {
+          "routeProfile": "bug_hunt",
+          "instructions": "Start from symptoms, logs, failing tests, and the smallest reproducible path."
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,6 @@
+version: 1
+outputDir: .burnplan
+mapDir: .skyhook
+quality:
+  sinceDays: 90
+  maxCommits: 1000

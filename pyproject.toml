@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "burnplan"
+version = "0.1.0"
+description = "A lightweight tuning ratchet for agent-maintained repositories."
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [
+  {name = "Kaleb Keith"},
+]
+dependencies = [
+  "skyhook>=0.1.0",
+]
+keywords = ["agents", "codebase", "documentation", "architecture", "quality", "cli"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Software Development :: Documentation",
+  "Topic :: Software Development :: Quality Assurance",
+]
+
+[project.scripts]
+burnplan = "burnplan.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["burnplan*"]
