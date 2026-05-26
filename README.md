@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/burnplan-drive.svg" alt="BurnPlan drive mark" width="180">
+</p>
+
 # BurnPlan
 
 BurnPlan is a project tuning tool for repositories maintained by humans and coding agents.
