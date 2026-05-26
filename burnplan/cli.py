@@ -16,6 +16,7 @@ from .artifacts import load_json_artifact, output_dir, ratchet_outputs_would_cha
 from .config import load_config
 from .document import build_document_entry, collect_documentation_ledger, write_document_entry
 from .interview import build_agent_guidance, build_onboarding, collect_interview_answers
+from .proposals import build_project_proposals, promote, proposals_would_change, write_proposals
 from .quality import analyze_quality
 from .teams import build_assignment_route, load_teams, resolve_behavior, teams_path, write_team_preset
 
@@ -34,6 +35,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             return cmd_teams(args)
         if args.command == "assign":
             return cmd_assign(args)
+        if args.command == "promote":
+            return cmd_promote(args)
     except KeyboardInterrupt:
         print("burnplan: interrupted", file=sys.stderr)
         return 130
@@ -87,6 +90,11 @@ def build_parser() -> argparse.ArgumentParser:
     assign.add_argument("--save", action="store_true", help="write route artifacts under .skyhook/routes")
     assign.add_argument("--refresh-map", action="store_true", help="refresh the Skyhook map before routing")
     assign.add_argument("--dry-run", action="store_true", help="route without writing maps or saved route artifacts")
+
+    promote_parser = sub.add_parser("promote", help="promote reviewed BurnPlan proposals into project docs or agent files")
+    add_common_args(promote_parser, skyhook_provider=False)
+    promote_parser.add_argument("target", choices=["docs", "agents", "all"], help="proposal type to promote")
+    promote_parser.add_argument("--force", action="store_true", help="overwrite existing promoted files")
     return parser
 
 
@@ -111,12 +119,19 @@ def cmd_onboard(args: argparse.Namespace) -> int:
     onboarding = build_onboarding(scan, base_map, answers, quality, previous=previous_onboarding)
     ledger = collect_documentation_ledger(out_dir)
     guidance = build_agent_guidance(base_map, onboarding, quality, ledger)
-    would_change = outputs_would_change(map_dir, base_map) or ratchet_outputs_would_change(out_dir, onboarding, quality, guidance, ledger)
+    teams = load_teams(teams_path(out_dir))
+    proposals = build_project_proposals(base_map, onboarding, quality, teams)
+    would_change = (
+        outputs_would_change(map_dir, base_map)
+        or ratchet_outputs_would_change(out_dir, onboarding, quality, guidance, ledger)
+        or proposals_would_change(out_dir, proposals)
+    )
     if getattr(args, "dry_run", False):
         print_report("onboard", scan, out_dir, map_dir, wrote=False, would_change=would_change)
         return 0
     write_outputs(map_dir, base_map)
     write_ratchet_outputs(out_dir, onboarding, quality, guidance, ledger)
+    write_proposals(out_dir, proposals)
     print_report("onboard", scan, out_dir, map_dir, wrote=True, would_change=would_change)
     return 0
 
@@ -129,12 +144,19 @@ def cmd_optimize(args: argparse.Namespace) -> int:
     onboarding = build_onboarding(scan, base_map, [], quality, previous=previous_onboarding)
     ledger = collect_documentation_ledger(out_dir)
     guidance = build_agent_guidance(base_map, onboarding, quality, ledger)
-    would_change = outputs_would_change(map_dir, base_map) or ratchet_outputs_would_change(out_dir, onboarding, quality, guidance, ledger)
+    teams = load_teams(teams_path(out_dir))
+    proposals = build_project_proposals(base_map, onboarding, quality, teams)
+    would_change = (
+        outputs_would_change(map_dir, base_map)
+        or ratchet_outputs_would_change(out_dir, onboarding, quality, guidance, ledger)
+        or proposals_would_change(out_dir, proposals)
+    )
     if getattr(args, "dry_run", False):
         print_report("optimize", scan, out_dir, map_dir, wrote=False, would_change=would_change)
         return 1 if would_change else 0
     write_outputs(map_dir, base_map)
     write_ratchet_outputs(out_dir, onboarding, quality, guidance, ledger)
+    write_proposals(out_dir, proposals)
     print_report("optimize", scan, out_dir, map_dir, wrote=True, would_change=would_change)
     return 0
 
@@ -189,6 +211,15 @@ def cmd_assign(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_promote(args: argparse.Namespace) -> int:
+    repo_root, _burn_cfg, _skyhook_cfg, out_dir, _map_dir = load_runtime(args)
+    paths = promote(out_dir, repo_root, args.target, force=args.force)
+    print(f"burnplan promote {args.target}: wrote {len(paths)} files")
+    for path in paths:
+        print(f"- {path}")
+    return 0
+
+
 def build_skyhook_map(repo_root: Path, skyhook_cfg: Any, map_dir: Path, args: argparse.Namespace, error_prefix: str):
     return build_map(
         repo_root,
@@ -232,6 +263,7 @@ def print_report(
     if wrote:
         print("- skyhook artifacts: map.md, map.json, docs.md, architecture.md")
         print("- burnplan artifacts: onboarding.md, quality.md, agent-prompts.md, documentation-ledger.md")
+        print("- proposal artifacts: .burnplan/proposals/docs/*, .burnplan/proposals/agents/*")
 
 
 def _exclude_output_dir(repo_root: Path, skyhook_cfg: Any, path: Path) -> None:

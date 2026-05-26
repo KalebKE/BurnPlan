@@ -36,6 +36,10 @@ class CliTests(unittest.TestCase):
                 "documentation-ledger.md",
             ]:
                 self.assertTrue((root / ".burnplan" / name).exists(), name)
+            self.assertTrue((root / ".burnplan" / "proposals" / "manifest.json").exists())
+            self.assertTrue((root / ".burnplan" / "proposals" / "docs" / "architecture.md").exists())
+            self.assertTrue((root / ".burnplan" / "proposals" / "agents" / "generic" / "product-owner-story-writer.md").exists())
+            self.assertTrue((root / ".burnplan" / "proposals" / "agents" / "claude" / "product-owner-story-writer.md").exists())
 
     def test_optimize_dry_run_reports_changes_until_written(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -86,6 +90,8 @@ class CliTests(unittest.TestCase):
             data = json.loads((root / ".burnplan" / "teams.json").read_text(encoding="utf-8"))
             self.assertEqual(data["teams"]["product-owner"]["behaviors"]["story"]["routeProfile"], "product_planning")
             self.assertEqual(data["teams"]["project-manager"]["behaviors"]["implement"]["routeProfile"], "implementation")
+            self.assertIn("story-writer", data["teams"]["product-owner"]["subagents"])
+            self.assertIn("technical-planner", data["teams"]["project-manager"]["subagents"])
 
     def test_assign_routes_team_behavior_to_skyhook_profile(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -125,6 +131,27 @@ class CliTests(unittest.TestCase):
             self.assertEqual(data["assignment"]["team"], "product-owner")
             self.assertEqual(data["assignment"]["behavior"], "story")
             self.assertTrue((root / ".skyhook" / "map.json").exists())
+
+    def test_promote_writes_docs_and_agent_files_after_onboard(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _init_repo(root)
+            (root / "README.md").write_text("# Demo\n\nDemo repo.", encoding="utf-8")
+            (root / "src").mkdir()
+            (root / "src" / "main.py").write_text("print('hello')\n", encoding="utf-8")
+
+            self.assertEqual(main(["onboard", "--repo", str(root), "--provider", "static", "--no-interview"]), 0)
+            self.assertEqual(main(["promote", "docs", "--repo", str(root)]), 0)
+            self.assertEqual(main(["promote", "agents", "--repo", str(root)]), 0)
+
+            self.assertTrue((root / "docs" / "architecture.md").exists())
+            self.assertTrue((root / "docs" / "design.md").exists())
+            self.assertTrue((root / "docs" / "code-map.md").exists())
+            self.assertTrue((root / "docs" / "agents" / "product-owner-story-writer.md").exists())
+            self.assertTrue((root / ".claude" / "agents" / "product-owner-story-writer.md").exists())
+
+            self.assertEqual(main(["promote", "docs", "--repo", str(root)]), 2)
+            self.assertEqual(main(["promote", "docs", "--repo", str(root), "--force"]), 0)
 
 
 def _init_repo(root: Path) -> None:

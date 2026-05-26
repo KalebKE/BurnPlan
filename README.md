@@ -3,6 +3,7 @@
 BurnPlan is the tuning ratchet for agent-maintained repositories.
 
 It consumes or refreshes a Skyhook code/documentation map, adds onboarding guidance, mines lightweight quality evidence from git history, and records what agents changed and why. The goal is not a comprehensive index. The goal is durable project memory that gets better as a team or coding-agent fleet works in the repo.
+It also generates reviewable project documentation and agent-team definitions, then promotes them into the repo only when you explicitly ask it to.
 
 ## Relationship To Skyhook
 
@@ -19,6 +20,8 @@ Use BurnPlan for the ratchet:
 - `.burnplan/quality.md`
 - `.burnplan/agent-prompts.md`
 - `.burnplan/documentation-ledger.md`
+- `.burnplan/proposals/docs/`
+- `.burnplan/proposals/agents/`
 - `.burnplan/worklog/`
 - `.burnplan/rationale/`
 
@@ -59,6 +62,7 @@ burnplan onboard --provider static --no-interview
 ```
 
 This writes or refreshes Skyhook map artifacts in `.skyhook/`, then writes BurnPlan artifacts in `.burnplan/`.
+It also writes reviewable proposal drafts under `.burnplan/proposals/`.
 
 ### `burnplan optimize`
 
@@ -68,7 +72,7 @@ Run this before committing, opening a PR, or handing work to another agent:
 burnplan optimize
 ```
 
-It refreshes the Skyhook map, quality evidence, onboarding guidance, agent prompts, and documentation ledger.
+It refreshes the Skyhook map, quality evidence, onboarding guidance, agent prompts, documentation ledger, and proposal drafts.
 
 Use it as a pre-PR gate:
 
@@ -115,7 +119,7 @@ It writes `.burnplan/teams.json`. The default preset maps:
 - `project-manager review` -> `code_review`
 - `project-manager bugfix` -> `bug_hunt`
 
-Users can edit `.burnplan/teams.json` to define their own teams and behaviors.
+Users can edit `.burnplan/teams.json` to define their own teams, behaviors, and subagents. The default teams include opinionated subagents for product stories, requirements, acceptance criteria, technical breakdowns, implementation, code review, and bug hunting.
 
 ### `burnplan assign`
 
@@ -144,6 +148,34 @@ Persist the generated route under `.skyhook/routes/`:
 ```sh
 burnplan assign --team project-manager --behavior review --task-file pr-notes.md --save
 ```
+
+### `burnplan promote`
+
+BurnPlan is review-first. Onboarding and optimization write proposal drafts; promotion copies reviewed drafts into human-owned project files.
+
+Promote documentation:
+
+```sh
+burnplan promote docs
+```
+
+This writes proposal docs to `docs/`, including architecture, design, code map, testing, code health, agent operating model, and an initial ADR.
+
+Promote agent definitions:
+
+```sh
+burnplan promote agents
+```
+
+This writes generic agent specs to `docs/agents/` and Claude-style subagent files to `.claude/agents/`.
+
+Promote everything:
+
+```sh
+burnplan promote all
+```
+
+Promotion refuses to overwrite existing files unless `--force` is supplied.
 
 ## Model Provider
 
@@ -218,4 +250,6 @@ PYTHONPATH=../Skyhook python3 -m unittest discover -s tests -v
 PYTHONPATH=../Skyhook python3 -m burnplan onboard --provider static --no-interview --dry-run
 PYTHONPATH=../Skyhook python3 -m burnplan optimize --provider static --dry-run
 PYTHONPATH=../Skyhook python3 -m burnplan assign --team project-manager --behavior implement --task "add retry handling"
+PYTHONPATH=../Skyhook python3 -m burnplan onboard --provider static --no-interview
+PYTHONPATH=../Skyhook python3 -m burnplan promote docs
 ```

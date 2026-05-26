@@ -25,6 +25,35 @@ DEFAULT_TEAMS: Dict[str, Any] = {
                     "instructions": "Find existing requirements, acceptance criteria, contracts, and open questions.",
                 },
             },
+            "subagents": {
+                "story-writer": {
+                    "behavior": "story",
+                    "description": "Drafts user stories from product intent, existing flows, and domain language.",
+                    "instructions": [
+                        "Start from the product_planning route pack.",
+                        "Write user-facing outcomes before implementation detail.",
+                        "Capture assumptions and open questions explicitly.",
+                    ],
+                },
+                "requirements-analyst": {
+                    "behavior": "requirements",
+                    "description": "Turns product intent into functional and non-functional requirements.",
+                    "instructions": [
+                        "Start from the requirements_planning route pack.",
+                        "Separate requirements from implementation approach.",
+                        "Name relevant contracts, screens, APIs, and acceptance criteria.",
+                    ],
+                },
+                "acceptance-criteria-reviewer": {
+                    "behavior": "requirements",
+                    "description": "Reviews stories and requirements for testable acceptance criteria.",
+                    "instructions": [
+                        "Start from the requirements_planning route pack.",
+                        "Check that every acceptance criterion can be verified.",
+                        "Flag ambiguous user-visible behavior and missing edge cases.",
+                    ],
+                },
+            },
         },
         "project-manager": {
             "description": "Breaks work down, routes implementation, reviews changes, and hunts bugs.",
@@ -44,6 +73,44 @@ DEFAULT_TEAMS: Dict[str, Any] = {
                 "bugfix": {
                     "routeProfile": "bug_hunt",
                     "instructions": "Start from symptoms, logs, failing tests, and the smallest reproducible path.",
+                },
+            },
+            "subagents": {
+                "technical-planner": {
+                    "behavior": "breakdown",
+                    "description": "Builds technical breakdowns with dependency order and verification strategy.",
+                    "instructions": [
+                        "Start from the technical_breakdown route pack.",
+                        "Identify boundaries, affected areas, risks, and test strategy before implementation.",
+                        "Split work into independently reviewable slices.",
+                    ],
+                },
+                "implementer": {
+                    "behavior": "implement",
+                    "description": "Implements scoped changes using routed code, docs, and tests.",
+                    "instructions": [
+                        "Start from the implementation route pack.",
+                        "Read likely edit targets and relevant tests before changing code.",
+                        "Document material changes with burnplan document.",
+                    ],
+                },
+                "reviewer": {
+                    "behavior": "review",
+                    "description": "Reviews code for defects, missing tests, and architecture violations.",
+                    "instructions": [
+                        "Start from the code_review route pack.",
+                        "Prioritize correctness, regressions, boundary violations, and missing verification.",
+                        "Lead with actionable findings tied to files and behavior.",
+                    ],
+                },
+                "bug-hunter": {
+                    "behavior": "bugfix",
+                    "description": "Diagnoses bugs from symptoms, logs, tests, and narrow repro paths.",
+                    "instructions": [
+                        "Start from the bug_hunt route pack.",
+                        "Preserve the observed symptom and reproduce before broad edits.",
+                        "Verify the fix against the smallest meaningful test or runtime check.",
+                    ],
                 },
             },
         },
