@@ -13,7 +13,7 @@ authors = [
   {name = "Kaleb Keith"},
 ]
 dependencies = [
-  "skyhook>=0.1.0",
+  "skyhook-graph>=0.2.0",
 ]
 keywords = ["agents", "codebase", "documentation", "architecture", "quality", "cli"]
 classifiers = [
