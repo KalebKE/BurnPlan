@@ -21,6 +21,12 @@
             "Start from the requirements_planning route pack.",
             "Check that every acceptance criterion can be verified.",
             "Flag ambiguous user-visible behavior and missing edge cases."
+          ],
+          "tools": [
+            "Read",
+            "Grep",
+            "Glob",
+            "Bash"
           ]
         },
         "requirements-analyst": {
@@ -30,6 +36,12 @@
             "Start from the requirements_planning route pack.",
             "Separate requirements from implementation approach.",
             "Name relevant contracts, screens, APIs, and acceptance criteria."
+          ],
+          "tools": [
+            "Read",
+            "Grep",
+            "Glob",
+            "Bash"
           ]
         },
         "story-writer": {
@@ -39,6 +51,12 @@
             "Start from the product_planning route pack.",
             "Write user-facing outcomes before implementation detail.",
             "Capture assumptions and open questions explicitly."
+          ],
+          "tools": [
+            "Read",
+            "Grep",
+            "Glob",
+            "Bash"
           ]
         }
       }
@@ -71,6 +89,14 @@
             "Start from the bug_hunt route pack.",
             "Preserve the observed symptom and reproduce before broad edits.",
             "Verify the fix against the smallest meaningful test or runtime check."
+          ],
+          "tools": [
+            "Read",
+            "Grep",
+            "Glob",
+            "Bash",
+            "Edit",
+            "Write"
           ]
         },
         "implementer": {
@@ -80,6 +106,14 @@
             "Start from the implementation route pack.",
             "Read likely edit targets and relevant tests before changing code.",
             "Document material changes with burnplan document."
+          ],
+          "tools": [
+            "Read",
+            "Grep",
+            "Glob",
+            "Bash",
+            "Edit",
+            "Write"
           ]
         },
         "reviewer": {
@@ -89,6 +123,12 @@
             "Start from the code_review route pack.",
             "Prioritize correctness, regressions, boundary violations, and missing verification.",
             "Lead with actionable findings tied to files and behavior."
+          ],
+          "tools": [
+            "Read",
+            "Grep",
+            "Glob",
+            "Bash"
           ]
         },
         "technical-planner": {
@@ -98,6 +138,12 @@
             "Start from the technical_breakdown route pack.",
             "Identify boundaries, affected areas, risks, and test strategy before implementation.",
             "Split work into independently reviewable slices."
+          ],
+          "tools": [
+            "Read",
+            "Grep",
+            "Glob",
+            "Bash"
           ]
         }
       }

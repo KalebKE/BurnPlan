@@ -122,7 +122,6 @@ def render_agent_prompts_markdown(data: Mapping[str, Any]) -> str:
     _section_list(lines, "Read First", data.get("readFirst", []), code=True)
     _section_list(lines, "Before Coding", data.get("beforeCoding", []))
     _section_list(lines, "Before Commit Or PR", data.get("beforeCommit", []))
-    _section_list(lines, "Improvement Prompts", data.get("improvementPrompts", []))
     evidence = data.get("documentationEvidence", {}) or {}
     lines.extend(["## Documentation Evidence", ""])
     lines.append(f"- Worklog entries: `{evidence.get('worklogCount', 0)}`")

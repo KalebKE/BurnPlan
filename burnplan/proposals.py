@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import json
 import shutil
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Tuple
 
 from .artifacts import canonical_json
+from .distill import render_agent_rules_markdown
 
 
 def build_project_proposals(
@@ -12,6 +14,7 @@ def build_project_proposals(
     onboarding: Mapping[str, Any],
     quality: Mapping[str, Any],
     teams: Mapping[str, Any],
+    rules: Mapping[str, Any],
 ) -> Dict[str, str]:
     docs = {
         "docs/architecture.md": render_architecture_doc(base_map, onboarding),
@@ -19,21 +22,27 @@ def build_project_proposals(
         "docs/code-map.md": render_code_doc(base_map),
         "docs/testing.md": render_testing_doc(base_map, quality),
         "docs/code-health.md": render_code_health_doc(quality),
+        "docs/improvement-backlog.md": render_improvement_backlog(quality, onboarding),
+        "docs/agent-rules.md": render_agent_rules_markdown(rules),
         "docs/agent-operating-model.md": render_agent_operating_model(teams),
         "docs/adr/0001-initial-architecture.md": render_initial_adr(base_map, onboarding),
     }
     agents = render_agent_specs(teams)
+    hooks = render_claude_hooks_proposal()
     manifest = {
         "schemaVersion": 1,
         "docs": sorted(docs),
         "agents": sorted(agents),
+        "claudeHooks": sorted(hooks),
         "promotionTargets": {
             "docs": sorted(docs),
             "agents": sorted(_promotion_target(path) for path in agents),
+            "claudeHooks": [".claude/settings.json"],
         },
     }
     outputs = {f"proposals/{path}": content for path, content in docs.items()}
     outputs.update({f"proposals/{path}": content for path, content in agents.items()})
+    outputs.update({f"proposals/{path}": content for path, content in hooks.items()})
     outputs["proposals/manifest.json"] = canonical_json(manifest)
     return outputs
 
@@ -72,6 +81,8 @@ def promote(out_dir: Path, repo_root: Path, target: str, force: bool = False) ->
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source, destination)
         promoted.append(destination)
+    if target in {"agents", "all"}:
+        promoted.extend(_promote_claude_hooks(proposal_root, repo_root))
     return promoted
 
 
@@ -199,8 +210,58 @@ def render_initial_adr(base_map: Mapping[str, Any], onboarding: Mapping[str, Any
     return "\n".join(lines)
 
 
+def render_improvement_backlog(quality: Mapping[str, Any], onboarding: Mapping[str, Any]) -> str:
+    lines = _header("Improvement Backlog", "Review and edit this BurnPlan proposal before treating it as project truth.")
+    lines.extend(["## Documentation Gaps", ""])
+    gaps = onboarding.get("documentationGaps", []) or []
+    if gaps:
+        for gap in gaps:
+            lines.append(f"- `{gap.get('kind', 'unknown')}` ({gap.get('priority', 'medium')}): {gap.get('recommendation', '')}")
+    else:
+        lines.append("- No documentation gaps detected.")
+    lines.append("")
+    lines.extend(["## Churn And Coupling Signals", ""])
+    signals = [
+        point
+        for point in (quality.get("weakPoints", []) or [])
+        if not point.startswith(
+            (
+                "No ADRs were detected",
+                "No architecture or design overview",
+                "No significant churn",
+                "Git history was unavailable",
+            )
+        )
+    ]
+    if signals:
+        for signal in signals:
+            lines.append(f"- {signal}")
+    else:
+        lines.append("- No churn or coupling signals detected.")
+    lines.append("")
+    lines.extend(
+        [
+            "## How To Use",
+            "",
+            "- Pick one item from this backlog when touching related code; do not fold backlog work into unrelated tasks.",
+            "- Record the improvement with `burnplan document --what ... --why ... --area ...`.",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
 def render_agent_operating_model(teams: Mapping[str, Any]) -> str:
     lines = _header("Agent Operating Model", "Review and edit this BurnPlan proposal before treating it as project truth.")
+    lines.extend(
+        [
+            "## Route Pack Contract",
+            "",
+            "The orchestrator resolves a route pack with `burnplan assign ... --format json` and passes it in the subagent's spawn prompt.",
+            "Subagents run `burnplan assign` themselves only as a fallback when no route pack was provided.",
+            "",
+        ]
+    )
     for team_name, team in (teams.get("teams") or {}).items():
         lines.append(f"## {team_name}")
         lines.extend(["", str(team.get("description", "")), ""])
@@ -209,7 +270,9 @@ def render_agent_operating_model(teams: Mapping[str, Any]) -> str:
             lines.append(f"- `{behavior_name}` -> Skyhook `{behavior.get('routeProfile')}`")
         lines.extend(["", "### Subagents"])
         for subagent_name, subagent in (team.get("subagents") or {}).items():
-            lines.append(f"- `{subagent_name}` ({subagent.get('behavior')}): {subagent.get('description', '')}")
+            tools = subagent.get("tools") or []
+            tools_note = f" [{', '.join(tools)}]" if tools else ""
+            lines.append(f"- `{subagent_name}` ({subagent.get('behavior')}){tools_note}: {subagent.get('description', '')}")
         lines.append("")
     return "\n".join(lines)
 
@@ -248,11 +311,25 @@ def _render_generic_agent(
             "",
             str(subagent.get("description", "")),
             "",
-            "## Route Command",
+        ]
+    )
+    tools = subagent.get("tools") or []
+    if tools:
+        lines.extend(["## Allowed Tools", ""])
+        for tool in tools:
+            lines.append(f"- `{tool}`")
+        lines.append("")
+    lines.extend(
+        [
+            "## Route Pack",
+            "",
+            "The orchestrator normally resolves the route pack and passes it in the spawn prompt:",
             "",
             "```sh",
-            f"burnplan assign --team {team_name} --behavior {behavior} --task-file <task-file>",
+            f"burnplan assign --team {team_name} --behavior {behavior} --task-file <task-file> --format json",
             "```",
+            "",
+            "Fallback only: if no route pack was provided, this subagent runs the command itself before working.",
             "",
             "## Instructions",
             "",
@@ -276,21 +353,109 @@ def _render_claude_agent(
     lines = [
         "---",
         f"name: {name}",
-        f"description: {subagent.get('description', '')}",
-        "---",
-        "",
-        f"You are the `{subagent_name}` subagent on the `{team_name}` team.",
-        "",
-        f"Before doing work, obtain a route pack with `burnplan assign --team {team_name} --behavior {behavior} --task-file <task-file>`.",
-        f"Use the Skyhook `{route_profile}` route profile as your initial context.",
-        "",
-        "## Instructions",
-        "",
+        f"description: {json.dumps(str(subagent.get('description', '')))}",
     ]
+    tools = subagent.get("tools") or []
+    if tools:
+        lines.append(f"tools: {', '.join(tools)}")
+    lines.extend(
+        [
+            "---",
+            "",
+            f"You are the `{subagent_name}` subagent on the `{team_name}` team.",
+            "",
+            "You are normally spawned with a Skyhook route pack already included in your prompt. "
+            f"The orchestrator produces it with `burnplan assign --team {team_name} --behavior {behavior} --format json`. "
+            "Use that route pack as your initial context.",
+            "",
+            "Fallback only: if no route pack was provided, run "
+            f"`burnplan assign --team {team_name} --behavior {behavior} --task-file <task-file>` yourself before working.",
+            "",
+            f"This behavior maps to the Skyhook `{route_profile}` route profile.",
+            "",
+            "## Instructions",
+            "",
+        ]
+    )
     for instruction in subagent.get("instructions", []) or []:
         lines.append(f"- {instruction}")
     lines.append("")
     return "\n".join(lines)
+
+
+def render_claude_hooks_proposal() -> Dict[str, str]:
+    settings = {
+        "hooks": {
+            "Stop": [
+                {"hooks": [{"type": "command", "command": "burnplan hook stop"}]}
+            ]
+        }
+    }
+    readme = "\n".join(
+        [
+            "# Claude Code Hooks",
+            "",
+            "<!-- GENERATED by burnplan. Review before promoting. -->",
+            "",
+            "`settings-hooks.json` is a Claude Code settings fragment that adds a `Stop` hook",
+            "running `burnplan hook stop` at the end of each session. The hook prints a one-line",
+            "reminder when the working tree has changes that no worklog entry documents, and",
+            "stays silent otherwise. It never blocks the session.",
+            "",
+            "`burnplan promote agents` installs it into `.claude/settings.json`:",
+            "",
+            "- If the file does not exist, the fragment becomes the file.",
+            "- If it exists, the hook entry is appended additively and idempotently; existing",
+            "  user settings are never modified or removed.",
+            "- If the existing file is not valid JSON, promotion fails and asks for a manual merge.",
+            "",
+            "If a future BurnPlan version changes the generated hook command, remove the old",
+            "entry from `.claude/settings.json` manually.",
+            "",
+        ]
+    )
+    return {
+        "agents/claude-hooks/settings-hooks.json": canonical_json(settings),
+        "agents/claude-hooks/README.md": readme,
+    }
+
+
+def _promote_claude_hooks(proposal_root: Path, repo_root: Path) -> List[Path]:
+    source = proposal_root / "agents" / "claude-hooks" / "settings-hooks.json"
+    if not source.exists():
+        return []
+    fragment = json.loads(source.read_text(encoding="utf-8"))
+    settings_path = repo_root / ".claude" / "settings.json"
+    if not settings_path.exists():
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+        settings_path.write_text(canonical_json(fragment), encoding="utf-8")
+        return [settings_path]
+    try:
+        existing = json.loads(settings_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            f"cannot merge hooks into invalid JSON at {settings_path}: {exc}. Merge {source} manually."
+        ) from exc
+    if not isinstance(existing, dict):
+        raise ValueError(f"cannot merge hooks: {settings_path} is not a JSON object. Merge {source} manually.")
+    hooks_section = existing.setdefault("hooks", {})
+    if not isinstance(hooks_section, dict):
+        raise ValueError(f"cannot merge hooks: 'hooks' in {settings_path} is not a JSON object. Merge {source} manually.")
+    changed = False
+    for event, groups in (fragment.get("hooks") or {}).items():
+        existing_groups = hooks_section.setdefault(event, [])
+        if not isinstance(existing_groups, list):
+            raise ValueError(
+                f"cannot merge hooks: 'hooks.{event}' in {settings_path} is not a JSON list. Merge {source} manually."
+            )
+        for group in groups:
+            if group not in existing_groups:
+                existing_groups.append(group)
+                changed = True
+    if not changed:
+        return []
+    settings_path.write_text(json.dumps(existing, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return [settings_path]
 
 
 def _promotion_pairs(source: Path, destination: Path) -> List[Tuple[Path, Path]]:

@@ -12,11 +12,17 @@ class QualityConfig:
 
 
 @dataclass
+class GuidanceConfig:
+    max_lines: int = 120
+
+
+@dataclass
 class BurnPlanConfig:
     version: int = 1
     output_dir: str = ".burnplan"
     map_dir: str = ".skyhook"
     quality: QualityConfig = field(default_factory=QualityConfig)
+    guidance: GuidanceConfig = field(default_factory=GuidanceConfig)
 
 
 def default_config() -> BurnPlanConfig:
@@ -44,6 +50,9 @@ def load_config(repo_root: Path, config_path: Optional[str] = None) -> BurnPlanC
     if isinstance(quality, dict):
         cfg.quality.since_days = int(quality.get("sinceDays", quality.get("since_days", cfg.quality.since_days)))
         cfg.quality.max_commits = int(quality.get("maxCommits", quality.get("max_commits", cfg.quality.max_commits)))
+    guidance = data.get("guidance", {})
+    if isinstance(guidance, dict):
+        cfg.guidance.max_lines = int(guidance.get("maxLines", guidance.get("max_lines", cfg.guidance.max_lines)))
     return cfg
 
 

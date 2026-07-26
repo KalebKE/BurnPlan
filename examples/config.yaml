@@ -4,3 +4,5 @@ mapDir: .skyhook
 quality:
   sinceDays: 90
   maxCommits: 1000
+guidance:
+  maxLines: 120

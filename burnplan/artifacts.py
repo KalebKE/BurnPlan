@@ -26,8 +26,9 @@ def write_ratchet_outputs(
     quality: Mapping[str, Any],
     guidance: Mapping[str, Any],
     ledger: Mapping[str, Any],
+    rules: Mapping[str, Any],
 ) -> None:
-    for path, content in ratchet_output_contents(out_dir, onboarding, quality, guidance, ledger).items():
+    for path, content in ratchet_output_contents(out_dir, onboarding, quality, guidance, ledger, rules).items():
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
 
@@ -38,8 +39,9 @@ def ratchet_outputs_would_change(
     quality: Mapping[str, Any],
     guidance: Mapping[str, Any],
     ledger: Mapping[str, Any],
+    rules: Mapping[str, Any],
 ) -> bool:
-    return any(_path_would_change(path, content) for path, content in ratchet_output_contents(out_dir, onboarding, quality, guidance, ledger).items())
+    return any(_path_would_change(path, content) for path, content in ratchet_output_contents(out_dir, onboarding, quality, guidance, ledger, rules).items())
 
 
 def ratchet_output_contents(
@@ -48,6 +50,7 @@ def ratchet_output_contents(
     quality: Mapping[str, Any],
     guidance: Mapping[str, Any],
     ledger: Mapping[str, Any],
+    rules: Mapping[str, Any],
 ) -> Dict[Path, str]:
     return {
         out_dir / "onboarding.json": canonical_json(onboarding),
@@ -58,6 +61,21 @@ def ratchet_output_contents(
         out_dir / "agent-prompts.md": render_agent_prompts_markdown(guidance),
         out_dir / "documentation-ledger.json": canonical_json(ledger),
         out_dir / "documentation-ledger.md": render_documentation_ledger_markdown(ledger),
+        out_dir / "agent-rules.json": canonical_json(rules),
+    }
+
+
+def guidance_size_report(
+    contents: Mapping[Path, str],
+    out_dir: Path,
+    max_lines: int,
+) -> Dict[str, Any]:
+    guidance_md = contents.get(out_dir / "agent-prompts.md", "")
+    lines = guidance_md.count("\n") + (1 if guidance_md and not guidance_md.endswith("\n") else 0)
+    return {
+        "lines": lines,
+        "budgetLines": max_lines,
+        "overBudget": lines > max_lines,
     }
 
 

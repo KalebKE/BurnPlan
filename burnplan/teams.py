@@ -29,6 +29,7 @@ DEFAULT_TEAMS: Dict[str, Any] = {
                 "story-writer": {
                     "behavior": "story",
                     "description": "Drafts user stories from product intent, existing flows, and domain language.",
+                    "tools": ["Read", "Grep", "Glob", "Bash"],
                     "instructions": [
                         "Start from the product_planning route pack.",
                         "Write user-facing outcomes before implementation detail.",
@@ -38,6 +39,7 @@ DEFAULT_TEAMS: Dict[str, Any] = {
                 "requirements-analyst": {
                     "behavior": "requirements",
                     "description": "Turns product intent into functional and non-functional requirements.",
+                    "tools": ["Read", "Grep", "Glob", "Bash"],
                     "instructions": [
                         "Start from the requirements_planning route pack.",
                         "Separate requirements from implementation approach.",
@@ -47,6 +49,7 @@ DEFAULT_TEAMS: Dict[str, Any] = {
                 "acceptance-criteria-reviewer": {
                     "behavior": "requirements",
                     "description": "Reviews stories and requirements for testable acceptance criteria.",
+                    "tools": ["Read", "Grep", "Glob", "Bash"],
                     "instructions": [
                         "Start from the requirements_planning route pack.",
                         "Check that every acceptance criterion can be verified.",
@@ -79,6 +82,7 @@ DEFAULT_TEAMS: Dict[str, Any] = {
                 "technical-planner": {
                     "behavior": "breakdown",
                     "description": "Builds technical breakdowns with dependency order and verification strategy.",
+                    "tools": ["Read", "Grep", "Glob", "Bash"],
                     "instructions": [
                         "Start from the technical_breakdown route pack.",
                         "Identify boundaries, affected areas, risks, and test strategy before implementation.",
@@ -88,6 +92,7 @@ DEFAULT_TEAMS: Dict[str, Any] = {
                 "implementer": {
                     "behavior": "implement",
                     "description": "Implements scoped changes using routed code, docs, and tests.",
+                    "tools": ["Read", "Grep", "Glob", "Bash", "Edit", "Write"],
                     "instructions": [
                         "Start from the implementation route pack.",
                         "Read likely edit targets and relevant tests before changing code.",
@@ -97,6 +102,7 @@ DEFAULT_TEAMS: Dict[str, Any] = {
                 "reviewer": {
                     "behavior": "review",
                     "description": "Reviews code for defects, missing tests, and architecture violations.",
+                    "tools": ["Read", "Grep", "Glob", "Bash"],
                     "instructions": [
                         "Start from the code_review route pack.",
                         "Prioritize correctness, regressions, boundary violations, and missing verification.",
@@ -106,6 +112,7 @@ DEFAULT_TEAMS: Dict[str, Any] = {
                 "bug-hunter": {
                     "behavior": "bugfix",
                     "description": "Diagnoses bugs from symptoms, logs, tests, and narrow repro paths.",
+                    "tools": ["Read", "Grep", "Glob", "Bash", "Edit", "Write"],
                     "instructions": [
                         "Start from the bug_hunt route pack.",
                         "Preserve the observed symptom and reproduce before broad edits.",

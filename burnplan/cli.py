@@ -12,9 +12,18 @@ from skyhook.model import ModelError
 from skyhook.render import render_route_markdown
 from skyhook.schema import canonical_json as skyhook_canonical_json
 
-from .artifacts import load_json_artifact, output_dir, ratchet_outputs_would_change, write_ratchet_outputs
+from .artifacts import (
+    guidance_size_report,
+    load_json_artifact,
+    output_dir,
+    ratchet_output_contents,
+    ratchet_outputs_would_change,
+    write_ratchet_outputs,
+)
 from .config import load_config
+from .distill import build_or_reuse_rules
 from .document import build_document_entry, collect_documentation_ledger, write_document_entry
+from .hooks import stop_reminder
 from .interview import build_agent_guidance, build_onboarding, collect_interview_answers
 from .proposals import build_project_proposals, promote, proposals_would_change, write_proposals
 from .quality import analyze_quality
@@ -37,6 +46,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             return cmd_assign(args)
         if args.command == "promote":
             return cmd_promote(args)
+        if args.command == "hook":
+            return cmd_hook(args)
     except KeyboardInterrupt:
         print("burnplan: interrupted", file=sys.stderr)
         return 130
@@ -59,10 +70,12 @@ def build_parser() -> argparse.ArgumentParser:
     onboard.add_argument("--dry-run", action="store_true", help="scan and synthesize without writing files")
     onboard.add_argument("--interview", action="store_true", help="force the interactive onboarding interview")
     onboard.add_argument("--no-interview", action="store_true", help="skip prompts and produce noninteractive onboarding output")
+    onboard.add_argument("--refresh-rules", action="store_true", help="re-distill agent rules even when worklog entries are unchanged")
 
     optimize = sub.add_parser("optimize", help="refresh Skyhook maps and BurnPlan guidance before commit or PR")
     add_common_args(optimize)
     optimize.add_argument("--dry-run", action="store_true", help="report whether artifacts would change")
+    optimize.add_argument("--refresh-rules", action="store_true", help="re-distill agent rules even when worklog entries are unchanged")
 
     document = sub.add_parser("document", help="record what an agent changed and why")
     add_common_args(document, skyhook_provider=False)
@@ -95,6 +108,10 @@ def build_parser() -> argparse.ArgumentParser:
     add_common_args(promote_parser, skyhook_provider=False)
     promote_parser.add_argument("target", choices=["docs", "agents", "all"], help="proposal type to promote")
     promote_parser.add_argument("--force", action="store_true", help="overwrite existing promoted files")
+
+    hook = sub.add_parser("hook", help="run lightweight harness hook actions")
+    add_common_args(hook, skyhook_provider=False)
+    hook.add_argument("action", choices=["stop"], help="hook action to run")
     return parser
 
 
@@ -111,53 +128,47 @@ def add_common_args(parser: argparse.ArgumentParser, skyhook_provider: bool = Tr
 
 
 def cmd_onboard(args: argparse.Namespace) -> int:
-    repo_root, burn_cfg, skyhook_cfg, out_dir, map_dir = load_runtime(args)
-    base_map, scan = build_skyhook_map(repo_root, skyhook_cfg, map_dir, args, error_prefix="onboarding map")
-    quality = analyze_quality(repo_root, scan, burn_cfg.quality.since_days, burn_cfg.quality.max_commits)
-    previous_onboarding = load_json_artifact(out_dir, "onboarding.json")
-    answers = collect_interview_answers(_should_interview(args))
-    onboarding = build_onboarding(scan, base_map, answers, quality, previous=previous_onboarding)
-    ledger = collect_documentation_ledger(out_dir)
-    guidance = build_agent_guidance(base_map, onboarding, quality, ledger)
-    teams = load_teams(teams_path(out_dir))
-    proposals = build_project_proposals(base_map, onboarding, quality, teams)
-    would_change = (
-        outputs_would_change(map_dir, base_map)
-        or ratchet_outputs_would_change(out_dir, onboarding, quality, guidance, ledger)
-        or proposals_would_change(out_dir, proposals)
-    )
-    if getattr(args, "dry_run", False):
-        print_report("onboard", scan, out_dir, map_dir, wrote=False, would_change=would_change)
-        return 0
-    write_outputs(map_dir, base_map)
-    write_ratchet_outputs(out_dir, onboarding, quality, guidance, ledger)
-    write_proposals(out_dir, proposals)
-    print_report("onboard", scan, out_dir, map_dir, wrote=True, would_change=would_change)
-    return 0
+    return _run_ratchet("onboard", args)
 
 
 def cmd_optimize(args: argparse.Namespace) -> int:
+    return _run_ratchet("optimize", args)
+
+
+def _run_ratchet(command: str, args: argparse.Namespace) -> int:
     repo_root, burn_cfg, skyhook_cfg, out_dir, map_dir = load_runtime(args)
-    base_map, scan = build_skyhook_map(repo_root, skyhook_cfg, map_dir, args, error_prefix="optimized map")
+    error_prefix = "onboarding map" if command == "onboard" else "optimized map"
+    base_map, scan = build_skyhook_map(repo_root, skyhook_cfg, map_dir, args, error_prefix=error_prefix)
     quality = analyze_quality(repo_root, scan, burn_cfg.quality.since_days, burn_cfg.quality.max_commits)
     previous_onboarding = load_json_artifact(out_dir, "onboarding.json")
-    onboarding = build_onboarding(scan, base_map, [], quality, previous=previous_onboarding)
+    answers = collect_interview_answers(_should_interview(args)) if command == "onboard" else []
+    onboarding = build_onboarding(scan, base_map, answers, quality, previous=previous_onboarding)
     ledger = collect_documentation_ledger(out_dir)
-    guidance = build_agent_guidance(base_map, onboarding, quality, ledger)
+    dry_run = getattr(args, "dry_run", False)
+    rules = build_or_reuse_rules(
+        out_dir,
+        skyhook_cfg,
+        getattr(args, "provider", None),
+        allow_model=not dry_run,
+        refresh=getattr(args, "refresh_rules", False),
+    )
+    guidance = build_agent_guidance(base_map, onboarding, quality, ledger, repo_root)
     teams = load_teams(teams_path(out_dir))
-    proposals = build_project_proposals(base_map, onboarding, quality, teams)
+    proposals = build_project_proposals(base_map, onboarding, quality, teams, rules)
     would_change = (
         outputs_would_change(map_dir, base_map)
-        or ratchet_outputs_would_change(out_dir, onboarding, quality, guidance, ledger)
+        or ratchet_outputs_would_change(out_dir, onboarding, quality, guidance, ledger, rules)
         or proposals_would_change(out_dir, proposals)
     )
-    if getattr(args, "dry_run", False):
-        print_report("optimize", scan, out_dir, map_dir, wrote=False, would_change=would_change)
-        return 1 if would_change else 0
+    contents = ratchet_output_contents(out_dir, onboarding, quality, guidance, ledger, rules)
+    size_report = guidance_size_report(contents, out_dir, burn_cfg.guidance.max_lines)
+    if dry_run:
+        print_report(command, scan, out_dir, map_dir, wrote=False, would_change=would_change, size_report=size_report)
+        return 1 if command == "optimize" and would_change else 0
     write_outputs(map_dir, base_map)
-    write_ratchet_outputs(out_dir, onboarding, quality, guidance, ledger)
+    write_ratchet_outputs(out_dir, onboarding, quality, guidance, ledger, rules)
     write_proposals(out_dir, proposals)
-    print_report("optimize", scan, out_dir, map_dir, wrote=True, would_change=would_change)
+    print_report(command, scan, out_dir, map_dir, wrote=True, would_change=would_change, size_report=size_report)
     return 0
 
 
@@ -220,6 +231,16 @@ def cmd_promote(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_hook(args: argparse.Namespace) -> int:
+    repo_root, _burn_cfg, _skyhook_cfg, out_dir, _map_dir = load_runtime(args)
+    if args.action != "stop":
+        raise ValueError(f"unsupported hook action: {args.action}")
+    message = stop_reminder(repo_root, out_dir)
+    if message:
+        print(message)
+    return 0
+
+
 def build_skyhook_map(repo_root: Path, skyhook_cfg: Any, map_dir: Path, args: argparse.Namespace, error_prefix: str):
     return build_map(
         repo_root,
@@ -250,6 +271,7 @@ def print_report(
     map_dir: Path,
     wrote: bool,
     would_change: Optional[bool] = None,
+    size_report: Optional[Mapping[str, Any]] = None,
 ) -> None:
     action = "wrote" if wrote else "dry-run"
     print(f"burnplan {command}: {action} {out_dir}")
@@ -260,10 +282,17 @@ def print_report(
     print(f"- docs: {len(scan.docs)}")
     if would_change is not None:
         print(f"- artifacts would change: {'yes' if would_change else 'no'}")
+    if size_report is not None:
+        print(f"- guidance size: {size_report['lines']} lines (budget {size_report['budgetLines']})")
+        if size_report.get("overBudget"):
+            print(
+                "burnplan: warning: agent-prompts.md exceeds the guidance budget; trim readFirst or raise guidance.maxLines",
+                file=sys.stderr,
+            )
     if wrote:
         print("- skyhook artifacts: map.md, map.json, docs.md, architecture.md")
-        print("- burnplan artifacts: onboarding.md, quality.md, agent-prompts.md, documentation-ledger.md")
-        print("- proposal artifacts: .burnplan/proposals/docs/*, .burnplan/proposals/agents/*")
+        print("- burnplan artifacts: onboarding.md, quality.md, agent-prompts.md, documentation-ledger.md, agent-rules.json")
+        print("- proposal artifacts: .burnplan/proposals/docs/* (incl. agent-rules.md, improvement-backlog.md), .burnplan/proposals/agents/* (incl. claude-hooks/)")
 
 
 def _exclude_output_dir(repo_root: Path, skyhook_cfg: Any, path: Path) -> None:

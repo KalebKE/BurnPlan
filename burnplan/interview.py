@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional
 
 from skyhook.scanner import RepoScan
@@ -114,28 +115,23 @@ def build_agent_guidance(
     onboarding: Mapping[str, Any],
     quality: Mapping[str, Any],
     ledger: Mapping[str, Any],
+    repo_root: Path,
 ) -> Dict[str, Any]:
     orientation = base_map.get("orientation") or {}
-    read_first = list(orientation.get("agentStartHere") or [])[:8]
-    read_first.extend([".burnplan/onboarding.md", ".burnplan/quality.md", ".burnplan/documentation-ledger.md"])
-    improvement_prompts = []
-    for weak_point in quality.get("weakPoints", []) or []:
-        improvement_prompts.append(f"When touching related code, look for a small documentation or design improvement: {weak_point}")
-    for gap in onboarding.get("documentationGaps", []) or []:
-        improvement_prompts.append(gap.get("recommendation", "Improve missing documentation."))
+    read_first = list(orientation.get("agentStartHere") or [])[:5]
+    if (repo_root / "docs" / "agent-rules.md").exists():
+        read_first.append("docs/agent-rules.md")
+    read_first.extend([".burnplan/onboarding.md", ".burnplan/quality.md"])
     return {
-        "readFirst": _unique(read_first),
+        "readFirst": _unique(read_first)[:8],
         "beforeCoding": [
             "Read the relevant code area in .skyhook/map.md before opening source files.",
             "Check .burnplan/quality.md for hotspots or coupling near the files you will touch.",
-            "Prefer existing architecture, ADR, design, and runbook docs over source-only inference.",
         ],
         "beforeCommit": [
             "Run burnplan optimize --dry-run to see whether generated guidance changed.",
             "Run burnplan document --what ... --why ... --area ... for material changes.",
-            "If a weak point was improved, mention the evidence in the rationale entry.",
         ],
-        "improvementPrompts": _unique(improvement_prompts)[:12],
         "documentationEvidence": {
             "worklogCount": ledger.get("worklogCount", 0),
             "rationaleCount": ledger.get("rationaleCount", 0),

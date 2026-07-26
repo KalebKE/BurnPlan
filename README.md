@@ -31,12 +31,19 @@ The core artifacts are:
 
 - `.burnplan/onboarding.md`: product, architecture, goals, risks, and documentation preferences
 - `.burnplan/quality.md`: lightweight churn, coupling, volatility, and static-analysis evidence
-- `.burnplan/agent-prompts.md`: guidance agents should read before working
+- `.burnplan/agent-prompts.md`: deliberately slim pre-work guidance agents should read before working
+- `.burnplan/agent-rules.json`: behavioral rules distilled from accumulated worklog entries
 - `.burnplan/documentation-ledger.md`: known documentation inventory and gaps
-- `.burnplan/proposals/docs/`: reviewable architecture, design, testing, code health, and ADR drafts
-- `.burnplan/proposals/agents/`: reviewable agent team definitions
+- `.burnplan/proposals/docs/`: reviewable architecture, design, testing, code health, improvement backlog, agent rules, and ADR drafts
+- `.burnplan/proposals/agents/`: reviewable agent team definitions and Claude Code hook config
 - `.burnplan/worklog/`: what changed
 - `.burnplan/rationale/`: why it changed
+
+Agent-facing guidance is kept intentionally small: `agent-prompts.md` holds a short
+read-first list and two checklists, and `burnplan optimize` reports its size against a
+configurable line budget. Improvement suggestions live in the reviewable
+`proposals/docs/improvement-backlog.md` instead of the pre-work path, so agents are not
+handed side quests before starting a task.
 
 BurnPlan is deliberately review-first. It writes proposals under `.burnplan/proposals/` and only copies them into human-owned docs or agent directories when you run `burnplan promote`.
 
@@ -139,7 +146,13 @@ mapDir: .skyhook
 quality:
   sinceDays: 90
   maxCommits: 1000
+guidance:
+  maxLines: 120
 ```
+
+`guidance.maxLines` is the budget for `.burnplan/agent-prompts.md`. When the rendered
+guidance exceeds it, `onboard` and `optimize` print a warning to stderr. The warning
+never changes exit codes, so CI dry-run gates are unaffected.
 
 Optional Skyhook config lives at `.skyhook/config.yaml`.
 
@@ -182,6 +195,9 @@ Environment variables:
 - `SKYHOOK_MODEL`
 
 If no API key is available and provider is `auto`, Skyhook uses static mode. That keeps BurnPlan usable on local machines and remote runners.
+
+Rule distillation (below) uses the same provider resolution. The model is only consulted
+on write paths when a key resolves; `--dry-run` and static CI runs never call the model.
 
 ## Commands
 
@@ -238,6 +254,18 @@ It writes separate entries:
 - `.burnplan/rationale/<timestamp>-<slug>.json`
 
 Use `--from-git` to fill `--what` from local git status and diff stats. `--why` is still required.
+
+Worklog entries also feed rule distillation: `burnplan onboard` and `burnplan optimize`
+mine accumulated entries into at most 18 behavioral rules with provenance links back to
+the source entries. The result is cached in `.burnplan/agent-rules.json`, keyed by a
+fingerprint of the entry ids, so reruns with unchanged entries reuse the previous rules
+byte-for-byte and the `optimize --dry-run` ratchet stays stable. A reviewable rendering
+lands in `.burnplan/proposals/docs/agent-rules.md`; after `burnplan promote docs`, the
+promoted `docs/agent-rules.md` joins the agent-prompts read-first list on the next
+optimize. With a model key available, rules are synthesized by the model; otherwise a
+deterministic static distiller groups entries by area and recurring rationale terms.
+Pass `--refresh-rules` to force re-distillation despite unchanged entries. Rules whose
+area stops appearing in recent entries are marked `stale` so they can be retired.
 
 ### `burnplan teams init`
 
@@ -297,9 +325,21 @@ burnplan promote agents
 burnplan promote all
 ```
 
-Documentation promotion writes to `docs/`, including architecture, design, code map, testing, code health, agent operating model, and an initial ADR.
+Documentation promotion writes to `docs/`, including architecture, design, code map, testing, code health, improvement backlog, distilled agent rules, agent operating model, and an initial ADR.
 
-Agent promotion writes generic agent specs to `docs/agents/` and Claude-style subagent files to `.claude/agents/`.
+Agent promotion writes generic agent specs to `docs/agents/` and Claude-style subagent files to `.claude/agents/`. Generated Claude subagent files carry per-role `tools` allowlists (planning and review roles are read-only; implementer and bug-hunter get edit tools), editable via `.burnplan/teams.json`.
+
+Agent promotion also installs the proposed Claude Code Stop hook into `.claude/settings.json`. If the file does not exist it is created; if it exists, the hook entry is merged additively and idempotently — existing user settings are never modified or removed, and re-promotion never duplicates the entry. If the existing file is not valid JSON, promotion fails with a manual-merge message. If a future BurnPlan version changes the generated hook command, remove the stale entry manually.
+
+### `burnplan hook stop`
+
+The generated Stop hook runs this command at the end of a Claude Code session:
+
+```sh
+burnplan hook stop
+```
+
+It prints a one-line reminder when the working tree has changes that no worklog entry documents (nothing newer than the last commit), and stays silent otherwise. It always exits 0 and never blocks the session. It is intentionally cheap — two git calls and a directory listing — rather than a full `optimize --dry-run`.
 
 ## When To Rerun
 
@@ -321,6 +361,16 @@ Run `burnplan optimize`:
 Run `burnplan document` after material agent work. It is most useful when the entry captures both what changed and why the approach was chosen.
 
 Run `burnplan promote` only after reviewing proposals. Promotion is intentionally explicit because generated docs should not silently overwrite project truth.
+
+## Upgrading Existing Repos
+
+Repositories already initialized with an older BurnPlan pick up everything on the next
+`burnplan optimize`: `.burnplan/*` artifacts and proposals regenerate in place (the
+first dry-run after upgrading will report changes — that is the ratchet working).
+Already-promoted files in `docs/`, `docs/agents/`, and `.claude/agents/` intentionally
+do not auto-update: review the refreshed proposals, then selectively
+`burnplan promote docs --force` or `burnplan promote agents --force`. Run
+`burnplan promote agents` once to install the Claude Code Stop hook.
 
 ## Quality Evidence
 
