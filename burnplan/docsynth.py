@@ -1,0 +1,195 @@
+from __future__ import annotations
+
+import hashlib
+import json
+import sys
+from pathlib import Path
+from typing import Any, Dict, List, Mapping, Optional
+
+from skyhook.model import ModelError
+
+try:
+    from skyhook.model import chat_json
+except ImportError:  # Skyhook < 0.4.0: degrade to static incorporation
+    chat_json = None
+
+from .artifacts import load_json_artifact
+
+
+HIGH_PRIORITY_KINDS = {"readme", "architecture", "design", "c4", "adr"}
+MAX_CONTEXT_DOCS = 8
+MAX_DOC_CHARS = 20000
+MAX_HEADINGS = 12
+SYNTH_TARGETS = ("architecture", "design")
+
+
+def collect_doc_context(repo_root: Path, base_map: Mapping[str, Any]) -> List[Dict[str, Any]]:
+    """Read the existing high-priority docs so generated proposals can incorporate them.
+
+    Deterministic: output depends only on the map's doc inventory and the
+    files' current contents, so the dry-run ratchet flags real doc edits and
+    nothing else.
+    """
+    docs: List[Dict[str, Any]] = []
+    for item in base_map.get("docs", []) or []:
+        kind = str(item.get("kind", ""))
+        if kind not in HIGH_PRIORITY_KINDS:
+            continue
+        rel_path = str(item.get("path", ""))
+        path = repo_root / rel_path
+        if not path.is_file():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")[:MAX_DOC_CHARS]
+        except OSError:
+            continue
+        docs.append(
+            {
+                "path": rel_path,
+                "kind": kind,
+                "title": str(item.get("title", "")) or rel_path,
+                "headings": _headings(text),
+                "lead": _lead_paragraph(text),
+                "text": text,
+            }
+        )
+        if len(docs) >= MAX_CONTEXT_DOCS:
+            break
+    docs.sort(key=lambda doc: (_kind_rank(doc["kind"]), doc["path"]))
+    return docs
+
+
+def doc_fingerprint(doc_context: List[Mapping[str, Any]], base_map: Mapping[str, Any], onboarding: Mapping[str, Any]) -> str:
+    hasher = hashlib.sha256()
+    for doc in doc_context:
+        hasher.update(str(doc.get("path", "")).encode("utf-8"))
+        hasher.update(hashlib.sha256(str(doc.get("text", "")).encode("utf-8")).digest())
+    hasher.update(str((base_map.get("scan") or {}).get("digest", "")).encode("utf-8"))
+    hasher.update(str(onboarding.get("summary", "")).encode("utf-8"))
+    hasher.update(str(onboarding.get("architectureIntent", "")).encode("utf-8"))
+    return hasher.hexdigest()[:16]
+
+
+def build_or_reuse_doc_synthesis(
+    out_dir: Path,
+    doc_context: List[Mapping[str, Any]],
+    base_map: Mapping[str, Any],
+    onboarding: Mapping[str, Any],
+    skyhook_cfg: Any,
+    provider_override: Optional[str],
+    allow_model: bool,
+    refresh: bool = False,
+) -> Dict[str, Any]:
+    """Model-written architecture/design drafts, cached like agent rules.
+
+    Static installs get an empty synthesis (the deterministic incorporation in
+    the proposal renderers still applies); with a model key the drafts merge
+    the full text of the existing docs with the map and onboarding intent.
+    """
+    fingerprint = doc_fingerprint(doc_context, base_map, onboarding)
+    previous = load_json_artifact(out_dir, "doc-synthesis.json")
+    if previous and previous.get("sourceFingerprint") == fingerprint and not refresh:
+        return previous
+
+    drafts: Dict[str, str] = {}
+    generated_by = "static"
+    if allow_model and chat_json is not None and doc_context:
+        try:
+            result = _model_drafts(doc_context, base_map, onboarding, skyhook_cfg, provider_override)
+            if result is not None:
+                drafts = result
+                generated_by = "model"
+        except ModelError as exc:
+            print(f"burnplan: doc synthesis model failed, keeping static proposals: {exc}", file=sys.stderr)
+    return {
+        "schemaVersion": 1,
+        "sourceFingerprint": fingerprint,
+        "generatedBy": generated_by,
+        "drafts": drafts,
+    }
+
+
+def _model_drafts(
+    doc_context: List[Mapping[str, Any]],
+    base_map: Mapping[str, Any],
+    onboarding: Mapping[str, Any],
+    skyhook_cfg: Any,
+    provider_override: Optional[str],
+) -> Optional[Dict[str, str]]:
+    if chat_json is None:
+        return None
+    doc_payload = [
+        {"path": doc["path"], "kind": doc["kind"], "text": doc["text"]}
+        for doc in doc_context
+    ]
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You write repository architecture and design documents for coding agents. "
+                "You are given the repository's existing human-written docs, a generated code map, "
+                "and captured project intent. Merge them: the existing docs are the primary source "
+                "of truth, the map fills in current structure, the intent fills in direction. "
+                "Return only valid JSON."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                'Return JSON: {"architecture": "<full markdown doc>", "design": "<full markdown doc>"}\n'
+                "Each doc should be a complete standalone markdown document that a maintainer could "
+                "review and promote over the existing doc. Preserve factual claims from the existing "
+                "docs; do not invent history or decisions.\n\n"
+                "Existing docs:\n"
+                + json.dumps(doc_payload, ensure_ascii=False)
+                + "\n\nCode areas:\n"
+                + json.dumps(base_map.get("codeAreas", []) or [], ensure_ascii=False)[:20000]
+                + "\n\nProject intent:\n"
+                + json.dumps(
+                    {
+                        "summary": onboarding.get("summary", ""),
+                        "architectureIntent": onboarding.get("architectureIntent", ""),
+                        "functionalRequirements": onboarding.get("functionalRequirements", []),
+                        "nonFunctionalRequirements": onboarding.get("nonFunctionalRequirements", []),
+                        "riskAreas": onboarding.get("riskAreas", []),
+                    },
+                    ensure_ascii=False,
+                )
+            ),
+        },
+    ]
+    result = chat_json(skyhook_cfg, messages, provider_override)
+    if result is None:
+        return None
+    drafts: Dict[str, str] = {}
+    for target in SYNTH_TARGETS:
+        text = str(result.get(target, "")).strip()
+        if text:
+            drafts[target] = text
+    return drafts or None
+
+
+def _headings(text: str) -> List[str]:
+    headings = [line.strip() for line in text.splitlines() if line.lstrip().startswith("#")]
+    return headings[:MAX_HEADINGS]
+
+
+def _lead_paragraph(text: str) -> str:
+    paragraph: List[str] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            if paragraph:
+                break
+            continue
+        if stripped.startswith(("#", "<!--", "---", "```")):
+            if paragraph:
+                break
+            continue
+        paragraph.append(stripped)
+    return " ".join(paragraph)[:600]
+
+
+def _kind_rank(kind: str) -> int:
+    order = {"readme": 0, "architecture": 1, "c4": 2, "design": 3, "adr": 4}
+    return order.get(kind, 9)

@@ -27,8 +27,9 @@ def write_ratchet_outputs(
     guidance: Mapping[str, Any],
     ledger: Mapping[str, Any],
     rules: Mapping[str, Any],
+    doc_synthesis: Mapping[str, Any],
 ) -> None:
-    for path, content in ratchet_output_contents(out_dir, onboarding, quality, guidance, ledger, rules).items():
+    for path, content in ratchet_output_contents(out_dir, onboarding, quality, guidance, ledger, rules, doc_synthesis).items():
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
 
@@ -40,8 +41,12 @@ def ratchet_outputs_would_change(
     guidance: Mapping[str, Any],
     ledger: Mapping[str, Any],
     rules: Mapping[str, Any],
+    doc_synthesis: Mapping[str, Any],
 ) -> bool:
-    return any(_path_would_change(path, content) for path, content in ratchet_output_contents(out_dir, onboarding, quality, guidance, ledger, rules).items())
+    return any(
+        _path_would_change(path, content)
+        for path, content in ratchet_output_contents(out_dir, onboarding, quality, guidance, ledger, rules, doc_synthesis).items()
+    )
 
 
 def ratchet_output_contents(
@@ -51,6 +56,7 @@ def ratchet_output_contents(
     guidance: Mapping[str, Any],
     ledger: Mapping[str, Any],
     rules: Mapping[str, Any],
+    doc_synthesis: Mapping[str, Any],
 ) -> Dict[Path, str]:
     return {
         out_dir / "onboarding.json": canonical_json(onboarding),
@@ -62,6 +68,7 @@ def ratchet_output_contents(
         out_dir / "documentation-ledger.json": canonical_json(ledger),
         out_dir / "documentation-ledger.md": render_documentation_ledger_markdown(ledger),
         out_dir / "agent-rules.json": canonical_json(rules),
+        out_dir / "doc-synthesis.json": canonical_json(doc_synthesis),
     }
 
 

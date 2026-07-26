@@ -22,6 +22,7 @@ from .artifacts import (
 )
 from .config import load_config
 from .distill import build_or_reuse_rules
+from .docsynth import build_or_reuse_doc_synthesis, collect_doc_context
 from .document import build_document_entry, collect_documentation_ledger, write_document_entry
 from .hooks import stop_reminder
 from .interview import build_agent_guidance, build_onboarding, collect_interview_answers
@@ -71,11 +72,13 @@ def build_parser() -> argparse.ArgumentParser:
     onboard.add_argument("--interview", action="store_true", help="force the interactive onboarding interview")
     onboard.add_argument("--no-interview", action="store_true", help="skip prompts and produce noninteractive onboarding output")
     onboard.add_argument("--refresh-rules", action="store_true", help="re-distill agent rules even when worklog entries are unchanged")
+    onboard.add_argument("--refresh-docs", action="store_true", help="re-synthesize architecture/design drafts even when inputs are unchanged")
 
     optimize = sub.add_parser("optimize", help="refresh Skyhook maps and BurnPlan guidance before commit or PR")
     add_common_args(optimize)
     optimize.add_argument("--dry-run", action="store_true", help="report whether artifacts would change")
     optimize.add_argument("--refresh-rules", action="store_true", help="re-distill agent rules even when worklog entries are unchanged")
+    optimize.add_argument("--refresh-docs", action="store_true", help="re-synthesize architecture/design drafts even when inputs are unchanged")
 
     document = sub.add_parser("document", help="record what an agent changed and why")
     add_common_args(document, skyhook_provider=False)
@@ -109,6 +112,7 @@ def build_parser() -> argparse.ArgumentParser:
     promote_parser.add_argument("target", choices=["docs", "agents", "all"], help="proposal type to promote")
     promote_parser.add_argument("--force", action="store_true", help="overwrite existing promoted files")
     promote_parser.add_argument("--skip-existing", action="store_true", help="promote only files whose destination does not exist yet")
+    promote_parser.add_argument("--only", action="append", default=None, help="promote only the named file (basename or repo-relative path); repeatable")
 
     hook = sub.add_parser("hook", help="run lightweight harness hook actions")
     add_common_args(hook, skyhook_provider=False)
@@ -155,19 +159,30 @@ def _run_ratchet(command: str, args: argparse.Namespace) -> int:
     )
     guidance = build_agent_guidance(base_map, onboarding, quality, ledger, repo_root)
     teams = load_teams(teams_path(out_dir))
-    proposals = build_project_proposals(base_map, onboarding, quality, teams, rules)
+    doc_context = collect_doc_context(repo_root, base_map)
+    doc_synthesis = build_or_reuse_doc_synthesis(
+        out_dir,
+        doc_context,
+        base_map,
+        onboarding,
+        skyhook_cfg,
+        getattr(args, "provider", None),
+        allow_model=not dry_run,
+        refresh=getattr(args, "refresh_docs", False),
+    )
+    proposals = build_project_proposals(base_map, onboarding, quality, teams, rules, doc_context, doc_synthesis)
     would_change = (
         outputs_would_change(map_dir, base_map)
-        or ratchet_outputs_would_change(out_dir, onboarding, quality, guidance, ledger, rules)
+        or ratchet_outputs_would_change(out_dir, onboarding, quality, guidance, ledger, rules, doc_synthesis)
         or proposals_would_change(out_dir, proposals)
     )
-    contents = ratchet_output_contents(out_dir, onboarding, quality, guidance, ledger, rules)
+    contents = ratchet_output_contents(out_dir, onboarding, quality, guidance, ledger, rules, doc_synthesis)
     size_report = guidance_size_report(contents, out_dir, burn_cfg.guidance.max_lines)
     if dry_run:
         print_report(command, scan, out_dir, map_dir, wrote=False, would_change=would_change, size_report=size_report)
         return 1 if command == "optimize" and would_change else 0
     write_outputs(map_dir, base_map)
-    write_ratchet_outputs(out_dir, onboarding, quality, guidance, ledger, rules)
+    write_ratchet_outputs(out_dir, onboarding, quality, guidance, ledger, rules, doc_synthesis)
     write_proposals(out_dir, proposals)
     print_report(command, scan, out_dir, map_dir, wrote=True, would_change=would_change, size_report=size_report)
     return 0
@@ -225,7 +240,7 @@ def cmd_assign(args: argparse.Namespace) -> int:
 
 def cmd_promote(args: argparse.Namespace) -> int:
     repo_root, _burn_cfg, _skyhook_cfg, out_dir, _map_dir = load_runtime(args)
-    paths, skipped = promote(out_dir, repo_root, args.target, force=args.force, skip_existing=args.skip_existing)
+    paths, skipped = promote(out_dir, repo_root, args.target, force=args.force, skip_existing=args.skip_existing, only=args.only)
     print(f"burnplan promote {args.target}: wrote {len(paths)} files")
     for path in paths:
         print(f"- {path}")

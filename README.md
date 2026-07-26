@@ -33,6 +33,7 @@ The core artifacts are:
 - `.burnplan/quality.md`: lightweight churn, coupling, volatility, and static-analysis evidence
 - `.burnplan/agent-prompts.md`: deliberately slim pre-work guidance agents should read before working
 - `.burnplan/agent-rules.json`: behavioral rules distilled from accumulated worklog entries
+- `.burnplan/doc-synthesis.json`: cached model-written architecture/design drafts with input fingerprint
 - `.burnplan/documentation-ledger.md`: known documentation inventory and gaps
 - `.burnplan/proposals/docs/`: reviewable architecture, design, testing, code health, improvement backlog, agent rules, and ADR drafts
 - `.burnplan/proposals/agents/`: reviewable agent team definitions and Claude Code hook config
@@ -138,6 +139,20 @@ Promotion refuses to overwrite existing files unless `--force` is supplied. Use
 useful when a repo already has human-owned docs (including case-colliding names
 like `ARCHITECTURE.md` on case-insensitive filesystems) that must never be
 overwritten. The two flags are mutually exclusive.
+
+Use `--only <name>` (repeatable; basename or repo-relative path) to promote a
+single reviewed file deliberately:
+
+```sh
+burnplan promote docs --only architecture.md --force
+```
+
+This is the intended path for replacing a human-written doc with a generated
+one you have reviewed: one file, named explicitly, instead of force-overwriting
+everything at once. On case-insensitive filesystems the write lands in the
+existing file (e.g. `ARCHITECTURE.md` keeps its name but receives the reviewed
+content). `--only` skips the Claude hooks merge; run a plain `promote agents`
+for that.
 
 ## Configuration
 
@@ -258,6 +273,25 @@ It writes separate entries:
 - `.burnplan/rationale/<timestamp>-<slug>.json`
 
 Use `--from-git` to fill `--what` from local git status and diff stats. `--why` is still required.
+
+### Existing documentation is incorporated
+
+Generated proposals are built from your existing docs, not alongside them.
+During `onboard` and `optimize`, BurnPlan reads the repository's high-priority
+docs (readme, architecture, design, C4, ADR kinds from the Skyhook inventory)
+and incorporates them:
+
+- Always (deterministic): the generated `architecture.md` and `design.md`
+  proposals carry an "Existing Documentation" section with each human doc's
+  lead paragraph and section outline, and state that the human docs remain
+  canonical.
+- With a model key: the architecture and design proposals are synthesized
+  whole from the full text of those docs plus the code map and captured
+  intent, so a reviewed proposal can earn the right to replace the human doc
+  via `promote docs --only <file> --force`. Drafts are cached in
+  `.burnplan/doc-synthesis.json` behind a fingerprint of the doc contents,
+  map digest, and intent — unchanged inputs reuse the cached bytes, dry-run
+  never calls the model, and `--refresh-docs` forces re-synthesis.
 
 Worklog entries also feed rule distillation: `burnplan onboard` and `burnplan optimize`
 mine accumulated entries into at most 18 behavioral rules with provenance links back to

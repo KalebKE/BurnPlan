@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import shutil
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Tuple
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
 
 from .artifacts import canonical_json
 from .distill import render_agent_rules_markdown
@@ -15,10 +15,18 @@ def build_project_proposals(
     quality: Mapping[str, Any],
     teams: Mapping[str, Any],
     rules: Mapping[str, Any],
+    doc_context: Optional[List[Mapping[str, Any]]] = None,
+    doc_synthesis: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, str]:
+    doc_context = doc_context or []
+    drafts = (doc_synthesis or {}).get("drafts") or {}
     docs = {
-        "docs/architecture.md": render_architecture_doc(base_map, onboarding),
-        "docs/design.md": render_design_doc(base_map, onboarding),
+        "docs/architecture.md": _synthesized_or(
+            drafts.get("architecture"), doc_synthesis, render_architecture_doc(base_map, onboarding, doc_context)
+        ),
+        "docs/design.md": _synthesized_or(
+            drafts.get("design"), doc_synthesis, render_design_doc(base_map, onboarding, doc_context)
+        ),
         "docs/code-map.md": render_code_doc(base_map),
         "docs/testing.md": render_testing_doc(base_map, quality),
         "docs/code-health.md": render_code_health_doc(quality),
@@ -64,6 +72,7 @@ def promote(
     target: str,
     force: bool = False,
     skip_existing: bool = False,
+    only: Optional[List[str]] = None,
 ) -> Tuple[List[Path], List[Path]]:
     if target not in {"docs", "agents", "all"}:
         raise ValueError("burnplan promote target must be docs, agents, or all")
@@ -79,6 +88,18 @@ def promote(
     if target in {"agents", "all"}:
         pairs.extend(_promotion_pairs(proposal_root / "agents" / "generic", repo_root / "docs" / "agents"))
         pairs.extend(_promotion_pairs(proposal_root / "agents" / "claude", repo_root / ".claude" / "agents"))
+
+    if only:
+        wanted = {entry.strip().lstrip("./") for entry in only if entry.strip()}
+        matched = [
+            (source, destination)
+            for source, destination in pairs
+            if destination.name in wanted or _repo_rel(destination, repo_root) in wanted
+        ]
+        if not matched:
+            available = ", ".join(sorted({destination.name for _s, destination in pairs}))
+            raise ValueError(f"--only matched no proposal files. Available: {available}")
+        pairs = matched
 
     skipped: List[Path] = []
     if skip_existing:
@@ -98,17 +119,22 @@ def promote(
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source, destination)
         promoted.append(destination)
-    if target in {"agents", "all"}:
+    if target in {"agents", "all"} and not only:
         promoted.extend(_promote_claude_hooks(proposal_root, repo_root))
     return promoted, skipped
 
 
-def render_architecture_doc(base_map: Mapping[str, Any], onboarding: Mapping[str, Any]) -> str:
+def render_architecture_doc(
+    base_map: Mapping[str, Any],
+    onboarding: Mapping[str, Any],
+    doc_context: Optional[List[Mapping[str, Any]]] = None,
+) -> str:
     lines = _header("Architecture", "Review and edit this BurnPlan proposal before treating it as project truth.")
     lines.extend(["## System Summary", "", _summary(base_map, onboarding), ""])
     intent = onboarding.get("architectureIntent")
     if intent:
         lines.extend(["## Desired Architecture", "", str(intent), ""])
+    _existing_docs_section(lines, doc_context, kinds={"architecture", "c4", "adr", "readme"})
     lines.extend(["## Code Areas", ""])
     for area in base_map.get("codeAreas", []) or []:
         lines.append(f"### {area.get('name') or area.get('id')}")
@@ -132,9 +158,14 @@ def render_architecture_doc(base_map: Mapping[str, Any], onboarding: Mapping[str
     return "\n".join(lines)
 
 
-def render_design_doc(base_map: Mapping[str, Any], onboarding: Mapping[str, Any]) -> str:
+def render_design_doc(
+    base_map: Mapping[str, Any],
+    onboarding: Mapping[str, Any],
+    doc_context: Optional[List[Mapping[str, Any]]] = None,
+) -> str:
     lines = _header("Design", "Review and edit this BurnPlan proposal before treating it as project truth.")
     lines.extend(["## Product Intent", "", _summary(base_map, onboarding), ""])
+    _existing_docs_section(lines, doc_context, kinds={"design", "readme"})
     _list(lines, "Functional Requirements", onboarding.get("functionalRequirements", []))
     _list(lines, "Non-Functional Requirements", onboarding.get("nonFunctionalRequirements", []))
     _list(lines, "Short-Term Goals", onboarding.get("shortTermGoals", []))
@@ -488,12 +519,61 @@ def _promotion_pairs(source: Path, destination: Path) -> List[Tuple[Path, Path]]
     return pairs
 
 
+def _repo_rel(path: Path, repo_root: Path) -> str:
+    try:
+        return path.relative_to(repo_root).as_posix()
+    except ValueError:
+        return path.as_posix()
+
+
 def _promotion_target(path: str) -> str:
     if path.startswith("agents/generic/"):
         return "docs/agents/" + path.removeprefix("agents/generic/")
     if path.startswith("agents/claude/"):
         return ".claude/agents/" + path.removeprefix("agents/claude/")
     return path
+
+
+def _synthesized_or(draft: Optional[str], doc_synthesis: Optional[Mapping[str, Any]], fallback: str) -> str:
+    if not draft:
+        return fallback
+    fingerprint = (doc_synthesis or {}).get("sourceFingerprint", "")
+    note = (
+        f"<!-- GENERATED by burnplan (model synthesis, fingerprint {fingerprint}). "
+        "Merged from the repository's existing docs, the code map, and captured intent. "
+        "Review before promoting over a human-written doc. -->"
+    )
+    return note + "\n\n" + draft.rstrip() + "\n"
+
+
+def _existing_docs_section(
+    lines: List[str],
+    doc_context: Optional[List[Mapping[str, Any]]],
+    kinds: set,
+) -> None:
+    relevant = [doc for doc in (doc_context or []) if doc.get("kind") in kinds]
+    if not relevant:
+        return
+    lines.extend(
+        [
+            "## Existing Documentation",
+            "",
+            "These human-written docs remain canonical; this proposal incorporates and links them rather than replacing them.",
+            "",
+        ]
+    )
+    for doc in relevant:
+        lines.append(f"### `{doc.get('path')}` ({doc.get('kind')})")
+        lines.append("")
+        lead = str(doc.get("lead", "")).strip()
+        if lead:
+            lines.extend([lead, ""])
+        headings = [h for h in (doc.get("headings") or []) if not h.lstrip("#").strip().lower() == (doc.get("title") or "").lower()]
+        if headings:
+            lines.append("Sections:")
+            for heading in headings:
+                lines.append(f"- {heading.lstrip('#').strip()}")
+            lines.append("")
 
 
 def _header(title: str, note: str) -> List[str]:
