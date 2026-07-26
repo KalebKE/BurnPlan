@@ -162,6 +162,40 @@ class CliTests(unittest.TestCase):
             self.assertEqual(main(["promote", "docs", "--repo", str(root)]), 2)
             self.assertEqual(main(["promote", "docs", "--repo", str(root), "--force"]), 0)
 
+    def test_promote_skip_existing_preserves_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _init_repo(root)
+            (root / "README.md").write_text("# Demo\n\nDemo repo.", encoding="utf-8")
+            (root / "docs").mkdir()
+            sentinel = "# Human-written architecture\n\nDo not clobber.\n"
+            (root / "docs" / "architecture.md").write_text(sentinel, encoding="utf-8")
+
+            self.assertEqual(main(["onboard", "--repo", str(root), "--provider", "static", "--no-interview"]), 0)
+
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                self.assertEqual(main(["promote", "docs", "--repo", str(root), "--skip-existing"]), 0)
+
+            self.assertEqual((root / "docs" / "architecture.md").read_text(encoding="utf-8"), sentinel)
+            self.assertTrue((root / "docs" / "design.md").exists())
+            self.assertTrue((root / "docs" / "agent-rules.md").exists())
+            self.assertIn("skipped (exists):", stdout.getvalue())
+            self.assertIn("architecture.md", stdout.getvalue())
+
+    def test_promote_skip_existing_conflicts_with_force(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _init_repo(root)
+            (root / "README.md").write_text("# Demo\n\nDemo repo.", encoding="utf-8")
+
+            self.assertEqual(main(["onboard", "--repo", str(root), "--provider", "static", "--no-interview"]), 0)
+
+            stderr = io.StringIO()
+            with redirect_stderr(stderr):
+                self.assertEqual(main(["promote", "docs", "--repo", str(root), "--force", "--skip-existing"]), 2)
+            self.assertIn("cannot be used together", stderr.getvalue())
+
     def test_agent_prompts_are_slim(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

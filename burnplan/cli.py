@@ -108,6 +108,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_common_args(promote_parser, skyhook_provider=False)
     promote_parser.add_argument("target", choices=["docs", "agents", "all"], help="proposal type to promote")
     promote_parser.add_argument("--force", action="store_true", help="overwrite existing promoted files")
+    promote_parser.add_argument("--skip-existing", action="store_true", help="promote only files whose destination does not exist yet")
 
     hook = sub.add_parser("hook", help="run lightweight harness hook actions")
     add_common_args(hook, skyhook_provider=False)
@@ -224,10 +225,12 @@ def cmd_assign(args: argparse.Namespace) -> int:
 
 def cmd_promote(args: argparse.Namespace) -> int:
     repo_root, _burn_cfg, _skyhook_cfg, out_dir, _map_dir = load_runtime(args)
-    paths = promote(out_dir, repo_root, args.target, force=args.force)
+    paths, skipped = promote(out_dir, repo_root, args.target, force=args.force, skip_existing=args.skip_existing)
     print(f"burnplan promote {args.target}: wrote {len(paths)} files")
     for path in paths:
         print(f"- {path}")
+    for path in skipped:
+        print(f"- skipped (exists): {path}")
     return 0
 
 

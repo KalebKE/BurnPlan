@@ -58,9 +58,17 @@ def proposals_would_change(out_dir: Path, proposals: Mapping[str, str]) -> bool:
     return any(_path_would_change(out_dir / rel_path, content) for rel_path, content in proposals.items())
 
 
-def promote(out_dir: Path, repo_root: Path, target: str, force: bool = False) -> List[Path]:
+def promote(
+    out_dir: Path,
+    repo_root: Path,
+    target: str,
+    force: bool = False,
+    skip_existing: bool = False,
+) -> Tuple[List[Path], List[Path]]:
     if target not in {"docs", "agents", "all"}:
         raise ValueError("burnplan promote target must be docs, agents, or all")
+    if force and skip_existing:
+        raise ValueError("--force and --skip-existing cannot be used together")
     proposal_root = out_dir / "proposals"
     if not proposal_root.exists():
         raise ValueError(f"proposal directory does not exist: {proposal_root}. Run burnplan onboard or burnplan optimize first.")
@@ -72,9 +80,18 @@ def promote(out_dir: Path, repo_root: Path, target: str, force: bool = False) ->
         pairs.extend(_promotion_pairs(proposal_root / "agents" / "generic", repo_root / "docs" / "agents"))
         pairs.extend(_promotion_pairs(proposal_root / "agents" / "claude", repo_root / ".claude" / "agents"))
 
-    conflicts = [destination for _source, destination in pairs if destination.exists() and not force]
-    if conflicts:
-        raise ValueError(f"refusing to overwrite existing file: {conflicts[0]}. Pass --force to overwrite.")
+    skipped: List[Path] = []
+    if skip_existing:
+        # Path.exists() is case-insensitive on APFS, which also shields
+        # human docs like ARCHITECTURE.md from a generated architecture.md.
+        skipped = [destination for _source, destination in pairs if destination.exists()]
+        pairs = [(source, destination) for source, destination in pairs if not destination.exists()]
+    else:
+        conflicts = [destination for _source, destination in pairs if destination.exists() and not force]
+        if conflicts:
+            raise ValueError(
+                f"refusing to overwrite existing file: {conflicts[0]}. Pass --force to overwrite or --skip-existing to promote around it."
+            )
 
     promoted: List[Path] = []
     for source, destination in pairs:
@@ -83,7 +100,7 @@ def promote(out_dir: Path, repo_root: Path, target: str, force: bool = False) ->
         promoted.append(destination)
     if target in {"agents", "all"}:
         promoted.extend(_promote_claude_hooks(proposal_root, repo_root))
-    return promoted
+    return promoted, skipped
 
 
 def render_architecture_doc(base_map: Mapping[str, Any], onboarding: Mapping[str, Any]) -> str:

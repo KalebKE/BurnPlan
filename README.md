@@ -133,7 +133,11 @@ When the proposed agent specs are good enough to install:
 burnplan promote agents
 ```
 
-Promotion refuses to overwrite existing files unless `--force` is supplied.
+Promotion refuses to overwrite existing files unless `--force` is supplied. Use
+`--skip-existing` to promote only files whose destination does not exist yet —
+useful when a repo already has human-owned docs (including case-colliding names
+like `ARCHITECTURE.md` on case-insensitive filesystems) that must never be
+overwritten. The two flags are mutually exclusive.
 
 ## Configuration
 
