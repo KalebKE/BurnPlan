@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "burnplan"
-version = "0.4.1"
+version = "0.5.0"
 description = "A lightweight tuning ratchet for agent-maintained repositories."
 readme = "README.md"
 requires-python = ">=3.9"

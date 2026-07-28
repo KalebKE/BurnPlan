@@ -377,6 +377,17 @@ Documentation promotion writes to `docs/`, including architecture, design, code 
 
 Agent promotion writes generic agent specs to `docs/agents/` and Claude-style subagent files to `.claude/agents/`. Generated Claude subagent files carry per-role `tools` allowlists (planning and review roles are read-only; implementer and bug-hunter get edit tools), editable via `.burnplan/teams.json`.
 
+Agent promotion also wires Codex: it maintains a small marker-fenced BurnPlan block
+in the repository's `AGENTS.md` (the file Codex loads automatically). The block is
+deliberately tiny — a pointer to `.burnplan/agent-prompts.md`, the route-pack
+command, and one boundary about returning distilled summaries from subagents —
+following the same progressive-disclosure posture as the Claude side
+([Codex context guidance](https://learn.chatgpt.com/guides/best-practices)):
+architectural rules live in the files the block points at, loaded as needed, never
+inlined into `AGENTS.md`. If the file is missing it is created; if it already has a
+burnplan block, the content between the markers is replaced in place; nothing
+outside the markers is ever touched.
+
 Agent promotion also installs the proposed Claude Code Stop hook into `.claude/settings.json`. If the file does not exist it is created; if it exists, the hook entry is merged additively and idempotently — existing user settings are never modified or removed, and re-promotion never duplicates the entry. If the existing file is not valid JSON, promotion fails with a manual-merge message. If a future BurnPlan version changes the generated hook command, remove the stale entry manually.
 
 ### `burnplan hook stop`

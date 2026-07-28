@@ -482,6 +482,57 @@ class CliTests(unittest.TestCase):
             self.assertIn("manually", stderr.getvalue())
             self.assertEqual((root / ".claude" / "settings.json").read_text(encoding="utf-8"), broken)
 
+    def test_promote_creates_agents_md_when_absent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _init_repo(root)
+            (root / "README.md").write_text("# Demo\n\nDemo repo.", encoding="utf-8")
+
+            self.assertEqual(main(["onboard", "--repo", str(root), "--provider", "static", "--no-interview"]), 0)
+            self.assertEqual(main(["promote", "agents", "--repo", str(root)]), 0)
+
+            agents_md = (root / "AGENTS.md").read_text(encoding="utf-8")
+            self.assertIn("<!-- burnplan:begin -->", agents_md)
+            self.assertIn(".burnplan/agent-prompts.md", agents_md)
+            self.assertIn("distilled summary", agents_md)
+
+    def test_promote_updates_agents_md_block_in_place(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _init_repo(root)
+            (root / "README.md").write_text("# Demo\n\nDemo repo.", encoding="utf-8")
+            user_content = "# My Codex Instructions\n\nHand-written rules stay.\n"
+            stale_block = "<!-- burnplan:begin -->\nOLD BLOCK CONTENT\n<!-- burnplan:end -->\n"
+            (root / "AGENTS.md").write_text(user_content + "\n" + stale_block + "\n# Trailing section\n", encoding="utf-8")
+
+            self.assertEqual(main(["onboard", "--repo", str(root), "--provider", "static", "--no-interview"]), 0)
+            self.assertEqual(main(["promote", "agents", "--repo", str(root)]), 0)
+
+            agents_md = (root / "AGENTS.md").read_text(encoding="utf-8")
+            self.assertIn("Hand-written rules stay.", agents_md)
+            self.assertIn("# Trailing section", agents_md)
+            self.assertNotIn("OLD BLOCK CONTENT", agents_md)
+            self.assertIn(".burnplan/agent-prompts.md", agents_md)
+            self.assertEqual(agents_md.count("<!-- burnplan:begin -->"), 1)
+
+            before = agents_md
+            self.assertEqual(main(["promote", "agents", "--repo", str(root), "--force"]), 0)
+            self.assertEqual((root / "AGENTS.md").read_text(encoding="utf-8"), before)
+
+    def test_generic_spec_uses_goal_context_constraints(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _init_repo(root)
+            (root / "README.md").write_text("# Demo\n\nDemo repo.", encoding="utf-8")
+
+            self.assertEqual(main(["onboard", "--repo", str(root), "--provider", "static", "--no-interview"]), 0)
+
+            spec = (root / ".burnplan" / "proposals" / "agents" / "generic" / "project-manager-implementer.md").read_text(encoding="utf-8")
+            for section in ["## Goal", "## Context", "## Constraints"]:
+                self.assertIn(section, spec)
+            self.assertIn("Return a distilled summary", spec)
+            self.assertNotIn("## Description", spec)
+
     def test_hook_stop_reminds_on_undocumented_dirty_tree(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
