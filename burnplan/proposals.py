@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import shutil
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
 
@@ -126,7 +128,32 @@ def promote(
     if target in {"agents", "all"} and not only:
         promoted.extend(_promote_claude_hooks(proposal_root, repo_root))
         promoted.extend(_promote_codex_wiring(proposal_root, repo_root))
+    _warn_gitignored(repo_root, promoted)
     return promoted, skipped
+
+
+def _warn_gitignored(repo_root: Path, promoted: List[Path]) -> None:
+    """Warn when git will ignore a file promotion just wrote.
+
+    An ignored promotion target silently vanishes from directory-level adds
+    (a .gitignore rule or a machine-local .git/info/exclude both do it), so
+    the promoted file never reaches a commit and nothing says why.
+    """
+    if not promoted:
+        return
+    try:
+        result = subprocess.run(
+            ["git", "check-ignore", "--no-index", "--", *[str(path) for path in promoted]],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return
+    ignored = [line for line in result.stdout.splitlines() if line.strip()]
+    for path in ignored:
+        print(f"burnplan: warning: promoted file is gitignored and will be skipped by directory-level git add: {path}", file=sys.stderr)
 
 
 def render_architecture_doc(

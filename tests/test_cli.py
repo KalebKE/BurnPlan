@@ -482,6 +482,27 @@ class CliTests(unittest.TestCase):
             self.assertIn("manually", stderr.getvalue())
             self.assertEqual((root / ".claude" / "settings.json").read_text(encoding="utf-8"), broken)
 
+    def test_promote_warns_when_target_is_gitignored(self):
+        # A promoted file that git will ignore vanishes from the next
+        # directory-level add with no signal; promote should say so.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _init_repo(root)
+            (root / "README.md").write_text("# Demo\n\nDemo repo.", encoding="utf-8")
+            (root / ".gitignore").write_text("docs/design.md\n", encoding="utf-8")
+
+            self.assertEqual(main(["onboard", "--repo", str(root), "--provider", "static", "--no-interview"]), 0)
+
+            stderr = io.StringIO()
+            with redirect_stderr(stderr):
+                self.assertEqual(main(["promote", "docs", "--repo", str(root)]), 0)
+
+            self.assertTrue((root / "docs" / "design.md").exists())
+            warning = stderr.getvalue()
+            self.assertIn("gitignored", warning)
+            self.assertIn("design.md", warning)
+            self.assertNotIn("architecture.md", warning)
+
     def test_promote_creates_agents_md_when_absent(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
