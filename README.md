@@ -46,6 +46,16 @@ configurable line budget. Improvement suggestions live in the reviewable
 `proposals/docs/improvement-backlog.md` instead of the pre-work path, so agents are not
 handed side quests before starting a task.
 
+This posture follows the published guidance for Claude 5-generation models
+([context engineering](https://claude.com/blog/the-new-rules-of-context-engineering-for-claude-5-generation-models),
+[Opus 5 prompting](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-opus-5)):
+slim pointer files over preloaded blobs, just-in-time route packs, auto-distilled
+rules instead of hand-maintained instruction files, and no verification ceremony in
+generated subagent instructions (current models verify their own work; telling them
+to do it again wastes tokens). Default subagents also carry an `effort` hint in
+`teams.json` (planning roles `high`, execution and review roles `medium`) — it is
+orchestrator-facing data, not a Claude Code frontmatter field.
+
 BurnPlan is deliberately review-first. It writes proposals under `.burnplan/proposals/` and only copies them into human-owned docs or agent directories when you run `burnplan promote`.
 
 ## Why It Works This Way

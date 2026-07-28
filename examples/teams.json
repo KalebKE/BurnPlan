@@ -17,6 +17,7 @@
         "acceptance-criteria-reviewer": {
           "behavior": "requirements",
           "description": "Reviews stories and requirements for testable acceptance criteria.",
+          "effort": "high",
           "instructions": [
             "Start from the requirements_planning route pack.",
             "Check that every acceptance criterion can be verified.",
@@ -32,6 +33,7 @@
         "requirements-analyst": {
           "behavior": "requirements",
           "description": "Turns product intent into functional and non-functional requirements.",
+          "effort": "high",
           "instructions": [
             "Start from the requirements_planning route pack.",
             "Separate requirements from implementation approach.",
@@ -47,6 +49,7 @@
         "story-writer": {
           "behavior": "story",
           "description": "Drafts user stories from product intent, existing flows, and domain language.",
+          "effort": "high",
           "instructions": [
             "Start from the product_planning route pack.",
             "Write user-facing outcomes before implementation detail.",
@@ -85,10 +88,10 @@
         "bug-hunter": {
           "behavior": "bugfix",
           "description": "Diagnoses bugs from symptoms, logs, tests, and narrow repro paths.",
+          "effort": "medium",
           "instructions": [
             "Start from the bug_hunt route pack.",
-            "Preserve the observed symptom and reproduce before broad edits.",
-            "Verify the fix against the smallest meaningful test or runtime check."
+            "Preserve the observed symptom and reproduce before broad edits."
           ],
           "tools": [
             "Read",
@@ -102,9 +105,9 @@
         "implementer": {
           "behavior": "implement",
           "description": "Implements scoped changes using routed code, docs, and tests.",
+          "effort": "medium",
           "instructions": [
             "Start from the implementation route pack.",
-            "Read likely edit targets and relevant tests before changing code.",
             "Document material changes with burnplan document."
           ],
           "tools": [
@@ -119,9 +122,10 @@
         "reviewer": {
           "behavior": "review",
           "description": "Reviews code for defects, missing tests, and architecture violations.",
+          "effort": "medium",
           "instructions": [
             "Start from the code_review route pack.",
-            "Prioritize correctness, regressions, boundary violations, and missing verification.",
+            "Report every finding; filtering and severity calls happen downstream.",
             "Lead with actionable findings tied to files and behavior."
           ],
           "tools": [
@@ -134,6 +138,7 @@
         "technical-planner": {
           "behavior": "breakdown",
           "description": "Builds technical breakdowns with dependency order and verification strategy.",
+          "effort": "high",
           "instructions": [
             "Start from the technical_breakdown route pack.",
             "Identify boundaries, affected areas, risks, and test strategy before implementation.",

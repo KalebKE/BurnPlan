@@ -319,7 +319,12 @@ def render_agent_operating_model(teams: Mapping[str, Any]) -> str:
         lines.extend(["", "### Subagents"])
         for subagent_name, subagent in (team.get("subagents") or {}).items():
             tools = subagent.get("tools") or []
-            tools_note = f" [{', '.join(tools)}]" if tools else ""
+            notes = []
+            if tools:
+                notes.append(", ".join(tools))
+            if subagent.get("effort"):
+                notes.append(f"effort {subagent['effort']}")
+            tools_note = f" [{'; '.join(notes)}]" if notes else ""
             lines.append(f"- `{subagent_name}` ({subagent.get('behavior')}){tools_note}: {subagent.get('description', '')}")
         lines.append("")
     return "\n".join(lines)
@@ -367,6 +372,9 @@ def _render_generic_agent(
         for tool in tools:
             lines.append(f"- `{tool}`")
         lines.append("")
+    effort = subagent.get("effort")
+    if effort:
+        lines.extend([f"- Suggested effort: `{effort}` (orchestrator-facing; spend high effort where decisions are made)", ""])
     lines.extend(
         [
             "## Route Pack",
@@ -418,8 +426,6 @@ def _render_claude_agent(
             "",
             "Fallback only: if no route pack was provided, run "
             f"`burnplan assign --team {team_name} --behavior {behavior} --task-file <task-file>` yourself before working.",
-            "",
-            f"This behavior maps to the Skyhook `{route_profile}` route profile.",
             "",
             "## Instructions",
             "",

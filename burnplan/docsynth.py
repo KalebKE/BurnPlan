@@ -139,7 +139,9 @@ def _model_drafts(
                 'Return JSON: {"architecture": "<full markdown doc>", "design": "<full markdown doc>"}\n'
                 "Each doc should be a complete standalone markdown document that a maintainer could "
                 "review and promote over the existing doc. Preserve factual claims from the existing "
-                "docs; do not invent history or decisions.\n\n"
+                "docs; do not invent history or decisions. Match each document's length to what it "
+                "needs: cover the substance, and do not pad with filler sections, redundant "
+                "summaries, or boilerplate.\n\n"
                 "Existing docs:\n"
                 + json.dumps(doc_payload, ensure_ascii=False)
                 + "\n\nCode areas:\n"

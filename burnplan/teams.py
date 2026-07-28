@@ -30,6 +30,7 @@ DEFAULT_TEAMS: Dict[str, Any] = {
                     "behavior": "story",
                     "description": "Drafts user stories from product intent, existing flows, and domain language.",
                     "tools": ["Read", "Grep", "Glob", "Bash"],
+                    "effort": "high",
                     "instructions": [
                         "Start from the product_planning route pack.",
                         "Write user-facing outcomes before implementation detail.",
@@ -40,6 +41,7 @@ DEFAULT_TEAMS: Dict[str, Any] = {
                     "behavior": "requirements",
                     "description": "Turns product intent into functional and non-functional requirements.",
                     "tools": ["Read", "Grep", "Glob", "Bash"],
+                    "effort": "high",
                     "instructions": [
                         "Start from the requirements_planning route pack.",
                         "Separate requirements from implementation approach.",
@@ -50,6 +52,7 @@ DEFAULT_TEAMS: Dict[str, Any] = {
                     "behavior": "requirements",
                     "description": "Reviews stories and requirements for testable acceptance criteria.",
                     "tools": ["Read", "Grep", "Glob", "Bash"],
+                    "effort": "high",
                     "instructions": [
                         "Start from the requirements_planning route pack.",
                         "Check that every acceptance criterion can be verified.",
@@ -83,6 +86,7 @@ DEFAULT_TEAMS: Dict[str, Any] = {
                     "behavior": "breakdown",
                     "description": "Builds technical breakdowns with dependency order and verification strategy.",
                     "tools": ["Read", "Grep", "Glob", "Bash"],
+                    "effort": "high",
                     "instructions": [
                         "Start from the technical_breakdown route pack.",
                         "Identify boundaries, affected areas, risks, and test strategy before implementation.",
@@ -93,9 +97,9 @@ DEFAULT_TEAMS: Dict[str, Any] = {
                     "behavior": "implement",
                     "description": "Implements scoped changes using routed code, docs, and tests.",
                     "tools": ["Read", "Grep", "Glob", "Bash", "Edit", "Write"],
+                    "effort": "medium",
                     "instructions": [
                         "Start from the implementation route pack.",
-                        "Read likely edit targets and relevant tests before changing code.",
                         "Document material changes with burnplan document.",
                     ],
                 },
@@ -103,9 +107,10 @@ DEFAULT_TEAMS: Dict[str, Any] = {
                     "behavior": "review",
                     "description": "Reviews code for defects, missing tests, and architecture violations.",
                     "tools": ["Read", "Grep", "Glob", "Bash"],
+                    "effort": "medium",
                     "instructions": [
                         "Start from the code_review route pack.",
-                        "Prioritize correctness, regressions, boundary violations, and missing verification.",
+                        "Report every finding; filtering and severity calls happen downstream.",
                         "Lead with actionable findings tied to files and behavior.",
                     ],
                 },
@@ -113,10 +118,10 @@ DEFAULT_TEAMS: Dict[str, Any] = {
                     "behavior": "bugfix",
                     "description": "Diagnoses bugs from symptoms, logs, tests, and narrow repro paths.",
                     "tools": ["Read", "Grep", "Glob", "Bash", "Edit", "Write"],
+                    "effort": "medium",
                     "instructions": [
                         "Start from the bug_hunt route pack.",
                         "Preserve the observed symptom and reproduce before broad edits.",
-                        "Verify the fix against the smallest meaningful test or runtime check.",
                     ],
                 },
             },
