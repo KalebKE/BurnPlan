@@ -6,7 +6,7 @@
 
 BurnPlan is a project tuning tool for repositories maintained by humans and coding agents.
 
-Skyhook tells an agent where to read. BurnPlan adds the longer-lived layer around that map: project intent, architecture direction, code health evidence, team routing, generated documentation proposals, and a record of what agents changed and why.
+Skyhook tells an agent where to read. BurnPlan adds the longer-lived layer around that map. It captures project intent, architecture direction, code health evidence, team routing, generated documentation proposals, and a record of what agents changed and why.
 
 ## The Problem
 
@@ -31,7 +31,7 @@ The core artifacts are:
 
 - `.burnplan/onboarding.md`: product, architecture, goals, risks, and documentation preferences
 - `.burnplan/quality.md`: lightweight churn, coupling, volatility, and static-analysis evidence
-- `.burnplan/agent-prompts.md`: deliberately slim pre-work guidance agents should read before working
+- `.burnplan/agent-prompts.md`: slim pre-work guidance agents read before working
 - `.burnplan/agent-rules.json`: behavioral rules distilled from accumulated worklog entries
 - `.burnplan/doc-synthesis.json`: cached model-written architecture/design drafts with input fingerprint
 - `.burnplan/documentation-ledger.md`: known documentation inventory and gaps
@@ -40,23 +40,27 @@ The core artifacts are:
 - `.burnplan/worklog/`: what changed
 - `.burnplan/rationale/`: why it changed
 
-Agent-facing guidance is kept intentionally small: `agent-prompts.md` holds a short
-read-first list and two checklists, and `burnplan optimize` reports its size against a
+Agent-facing guidance stays small. `agent-prompts.md` holds a short read-first
+list and two checklists, and `burnplan optimize` reports its size against a
 configurable line budget. Improvement suggestions live in the reviewable
-`proposals/docs/improvement-backlog.md` instead of the pre-work path, so agents are not
-handed side quests before starting a task.
+`proposals/docs/improvement-backlog.md` instead of the pre-work path, so agents
+are not handed side quests before starting a task.
 
 This posture follows the published guidance for Claude 5-generation models
 ([context engineering](https://claude.com/blog/the-new-rules-of-context-engineering-for-claude-5-generation-models),
 [Opus 5 prompting](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-opus-5)):
-slim pointer files over preloaded blobs, just-in-time route packs, auto-distilled
-rules instead of hand-maintained instruction files, and no verification ceremony in
-generated subagent instructions (current models verify their own work; telling them
-to do it again wastes tokens). Default subagents also carry an `effort` hint in
-`teams.json` (planning roles `high`, execution and review roles `medium`) — it is
-orchestrator-facing data, not a Claude Code frontmatter field.
 
-BurnPlan is deliberately review-first. It writes proposals under `.burnplan/proposals/` and only copies them into human-owned docs or agent directories when you run `burnplan promote`.
+- slim pointer files over preloaded blobs
+- just-in-time route packs
+- auto-distilled rules instead of hand-maintained instruction files
+- no verification ceremony in generated subagent instructions (current models
+  verify their own work; telling them to do it again wastes tokens)
+
+Default subagents also carry an `effort` hint in `teams.json` (planning roles
+`high`, execution and review roles `medium`). The hint is orchestrator-facing
+data, not a Claude Code frontmatter field.
+
+BurnPlan is review-first. It writes proposals under `.burnplan/proposals/` and only copies them into human-owned docs or agent directories when you run `burnplan promote`.
 
 ## Why It Works This Way
 
@@ -64,9 +68,25 @@ Generated documentation should not become project truth just because a tool wrot
 
 The ratchet is file-based because it needs to work in normal local repos, CI runners, and agent harnesses without a database or service. Files can be committed, reviewed, diffed, edited, or ignored.
 
-The quality analysis is lightweight on purpose. BurnPlan looks for useful signals such as churn, co-change coupling, volatile areas, static-analysis configuration, and missing architecture docs. It is meant to point agents toward weak spots, not pretend to replace deeper analysis.
+The quality analysis is lightweight. BurnPlan looks for useful signals such as churn, co-change coupling, volatile areas, static-analysis configuration, and missing architecture docs. It points agents toward weak spots and does not replace deeper analysis.
 
 The team model is also plain data. BurnPlan ships with opinionated Product Owner and Project Manager teams, but users can edit `.burnplan/teams.json` or supply their own mapping.
+
+## Benchmarks
+
+The measured chart comes from adding the same feature to two versions of the
+same small Android app, a clean layered version and a single God-Activity ball
+of mud, with the same small model doing the work. The mud cost about a third
+more total tokens and made the model generate about half again as much code.
+
+<img src="assets/burnplan-feature-cost.svg" alt="Bar chart: adding the same feature to the ball of mud cost 3.56M total tokens vs 2.67M for the clean codebase (+33%), and generated 14,990 units of code vs 9,949 (+51%)." width="640">
+
+The second chart is the mental model behind the ratchet, illustrative rather
+than measured. Clean architecture costs more up front and then its total grows
+slowly; the mud is cheap to start and then the cost of every change keeps
+accelerating. The ratchet is there to keep agent output on the clean curve.
+
+<img src="assets/burnplan-cost-curve.svg" alt="Two cumulative-cost curves crossing: clean architecture climbs up front then flattens like a log curve, the ball of mud stays low then rockets up like an exponential. After the break-even point the mud has cost more, and the gap keeps widening." width="680">
 
 ## Relationship To Skyhook
 
@@ -91,6 +111,13 @@ Use BurnPlan for the ratchet:
 BurnPlan imports Skyhook. When `burnplan onboard` or `burnplan optimize` runs, it can refresh `.skyhook/` first and then build BurnPlan artifacts from the current map.
 
 ## Install
+
+From PyPI (the package is `burnplan`; the Skyhook dependency installs with it
+as `skyhook-graph`):
+
+```sh
+python3 -m pip install burnplan
+```
 
 From sibling checkouts:
 
@@ -145,10 +172,10 @@ burnplan promote agents
 ```
 
 Promotion refuses to overwrite existing files unless `--force` is supplied. Use
-`--skip-existing` to promote only files whose destination does not exist yet —
-useful when a repo already has human-owned docs (including case-colliding names
-like `ARCHITECTURE.md` on case-insensitive filesystems) that must never be
-overwritten. The two flags are mutually exclusive.
+`--skip-existing` to promote only files whose destination does not exist yet.
+That is useful when a repo already has human-owned docs (including
+case-colliding names like `ARCHITECTURE.md` on case-insensitive filesystems)
+that must never be overwritten. The two flags are mutually exclusive.
 
 Use `--only <name>` (repeatable; basename or repo-relative path) to promote a
 single reviewed file deliberately:
@@ -158,11 +185,11 @@ burnplan promote docs --only architecture.md --force
 ```
 
 This is the intended path for replacing a human-written doc with a generated
-one you have reviewed: one file, named explicitly, instead of force-overwriting
-everything at once. On case-insensitive filesystems the write lands in the
-existing file (e.g. `ARCHITECTURE.md` keeps its name but receives the reviewed
-content). `--only` skips the Claude hooks merge; run a plain `promote agents`
-for that.
+one you have reviewed. It promotes one file, named explicitly, instead of
+force-overwriting everything at once. On case-insensitive filesystems the write
+lands in the existing file (e.g. `ARCHITECTURE.md` keeps its name but receives
+the reviewed content). `--only` skips the Claude hooks merge; run a plain
+`promote agents` for that.
 
 ## Configuration
 
@@ -211,13 +238,13 @@ docs:
     - "**/*C4*.md"
 ```
 
-The YAML parser intentionally supports a small subset. Neither Skyhook nor BurnPlan requires PyYAML.
+The YAML parser supports a small subset. Neither Skyhook nor BurnPlan requires PyYAML.
 
 ## Model Provider
 
 BurnPlan delegates repository mapping to Skyhook. Skyhook supports an OpenAI-compatible chat completions endpoint through the Python standard library.
 
-Environment variables:
+Skyhook reads these environment variables:
 
 - `OPENAI_API_KEY` or `SKYHOOK_API_KEY`
 - `OPENAI_BASE_URL` or `SKYHOOK_BASE_URL`
@@ -286,7 +313,7 @@ Use `--from-git` to fill `--what` from local git status and diff stats. `--why` 
 
 ### Existing documentation is incorporated
 
-Generated proposals are built from your existing docs, not alongside them.
+Generated proposals are built from your existing docs instead of alongside them.
 During `onboard` and `optimize`, BurnPlan reads the repository's high-priority
 docs (readme, architecture, design, C4, ADR kinds from the Skyhook inventory)
 and incorporates them:
@@ -300,7 +327,7 @@ and incorporates them:
   intent, so a reviewed proposal can earn the right to replace the human doc
   via `promote docs --only <file> --force`. Drafts are cached in
   `.burnplan/doc-synthesis.json` behind a fingerprint of the doc contents,
-  map digest, and intent — unchanged inputs reuse the cached bytes, dry-run
+  map digest, and intent. Unchanged inputs reuse the cached bytes, dry-run
   never calls the model, and `--refresh-docs` forces re-synthesis.
 
 Worklog entries also feed rule distillation: `burnplan onboard` and `burnplan optimize`
@@ -379,16 +406,16 @@ Agent promotion writes generic agent specs to `docs/agents/` and Claude-style su
 
 Agent promotion also wires Codex: it maintains a small marker-fenced BurnPlan block
 in the repository's `AGENTS.md` (the file Codex loads automatically). The block is
-deliberately tiny — a pointer to `.burnplan/agent-prompts.md`, the route-pack
-command, and one boundary about returning distilled summaries from subagents —
-following the same progressive-disclosure posture as the Claude side
-([Codex context guidance](https://learn.chatgpt.com/guides/best-practices)):
-architectural rules live in the files the block points at, loaded as needed, never
+small. It holds a pointer to `.burnplan/agent-prompts.md`, the route-pack command,
+and one boundary about returning distilled summaries from subagents, following the
+same progressive-disclosure posture as the Claude side
+([Codex context guidance](https://learn.chatgpt.com/guides/best-practices)).
+Architectural rules live in the files the block points at, loaded as needed, never
 inlined into `AGENTS.md`. If the file is missing it is created; if it already has a
 burnplan block, the content between the markers is replaced in place; nothing
 outside the markers is ever touched.
 
-Agent promotion also installs the proposed Claude Code Stop hook into `.claude/settings.json`. If the file does not exist it is created; if it exists, the hook entry is merged additively and idempotently — existing user settings are never modified or removed, and re-promotion never duplicates the entry. If the existing file is not valid JSON, promotion fails with a manual-merge message. If a future BurnPlan version changes the generated hook command, remove the stale entry manually.
+Agent promotion also installs the proposed Claude Code Stop hook into `.claude/settings.json`. If the file does not exist it is created; if it exists, the hook entry is merged additively and idempotently. Existing user settings are never modified or removed, and re-promotion never duplicates the entry. If the existing file is not valid JSON, promotion fails with a manual-merge message. If a future BurnPlan version changes the generated hook command, remove the stale entry manually.
 
 ### `burnplan hook stop`
 
@@ -398,7 +425,7 @@ The generated Stop hook runs this command at the end of a Claude Code session:
 burnplan hook stop
 ```
 
-It prints a one-line reminder when the working tree has changes that no worklog entry documents (nothing newer than the last commit), and stays silent otherwise. It always exits 0 and never blocks the session. It is intentionally cheap — two git calls and a directory listing — rather than a full `optimize --dry-run`.
+It prints a one-line reminder when the working tree has changes that no worklog entry documents (nothing newer than the last commit), and stays silent otherwise. It always exits 0 and never blocks the session. It is cheap (two git calls and a directory listing) rather than a full `optimize --dry-run`.
 
 ## When To Rerun
 
@@ -419,15 +446,15 @@ Run `burnplan optimize`:
 
 Run `burnplan document` after material agent work. It is most useful when the entry captures both what changed and why the approach was chosen.
 
-Run `burnplan promote` only after reviewing proposals. Promotion is intentionally explicit because generated docs should not silently overwrite project truth.
+Run `burnplan promote` only after reviewing proposals. Promotion is explicit because generated docs should not silently overwrite project truth.
 
 ## Upgrading Existing Repos
 
 Repositories already initialized with an older BurnPlan pick up everything on the next
 `burnplan optimize`: `.burnplan/*` artifacts and proposals regenerate in place (the
-first dry-run after upgrading will report changes — that is the ratchet working).
-Already-promoted files in `docs/`, `docs/agents/`, and `.claude/agents/` intentionally
-do not auto-update: review the refreshed proposals, then selectively
+first dry-run after upgrading will report changes; that is the ratchet working).
+Already-promoted files in `docs/`, `docs/agents/`, and `.claude/agents/` do not
+auto-update. Review the refreshed proposals, then selectively
 `burnplan promote docs --force` or `burnplan promote agents --force`. Run
 `burnplan promote agents` once to install the Claude Code Stop hook.
 
@@ -461,14 +488,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: |
-          python3 -m pip install \
-            "git+https://github.com/KalebKE/Skyhook.git" \
-            "git+https://github.com/KalebKE/BurnPlan.git"
+      - run: python3 -m pip install burnplan
       - run: burnplan optimize --provider static --dry-run
 ```
-
-Adjust install paths for your checkout layout. In many repos, BurnPlan will be installed from a package or tool cache rather than directly from Git.
 
 ## Development
 
