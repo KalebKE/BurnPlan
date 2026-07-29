@@ -178,7 +178,7 @@ case-colliding names like `ARCHITECTURE.md` on case-insensitive filesystems)
 that must never be overwritten. The two flags are mutually exclusive.
 
 Use `--only <name>` (repeatable; basename or repo-relative path) to promote a
-single reviewed file deliberately:
+single reviewed file:
 
 ```sh
 burnplan promote docs --only architecture.md --force
