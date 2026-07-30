@@ -33,6 +33,7 @@ The core artifacts are:
 - `.burnplan/quality.md`: lightweight churn, coupling, volatility, and static-analysis evidence
 - `.burnplan/agent-prompts.md`: slim pre-work guidance agents read before working
 - `.burnplan/agent-rules.json`: behavioral rules distilled from accumulated worklog entries
+- `.burnplan/behavior-evidence.json`: transcript-derived behavior snapshot written by `burnplan behavior sync`
 - `.burnplan/doc-synthesis.json`: cached model-written architecture/design drafts with input fingerprint
 - `.burnplan/documentation-ledger.md`: known documentation inventory and gaps
 - `.burnplan/proposals/docs/`: reviewable architecture, design, testing, code health, improvement backlog, agent rules, and ADR drafts
@@ -310,6 +311,38 @@ It writes separate entries:
 - `.burnplan/rationale/<timestamp>-<slug>.json`
 
 Use `--from-git` to fill `--what` from local git status and diff stats. `--why` is still required.
+
+### `burnplan behavior sync`
+
+Run this to capture how agents behaved in this repository:
+
+```sh
+burnplan behavior sync
+```
+
+It scans the repository's Claude Code session transcripts under
+`~/.claude/projects/` and writes `.burnplan/behavior-evidence.json` with the
+measured signal. The one signal today is edits without a prior read: an edit
+to a file whose path is not among the session's last 20 read paths. Codex
+rollouts are not scanned because edit detection there is too approximate to
+trust. Worktree and subdirectory sessions are not counted.
+
+Scanning never happens during `onboard` or `optimize`. Those commands read
+the committed snapshot only, so the dry-run gate stays deterministic and CI
+runners without `~/.claude` are unaffected. Re-running sync with unchanged
+transcripts leaves the file byte-identical.
+
+When the measured rate clears `behavior.editsWithoutReadThreshold` (default
+25%) over at least 20 edits, distillation adds a rule carrying the
+measurement, with `behavior-evidence` as its source. With a model key, the
+snapshot is also handed to the model as labeled evidence. Configure the
+window and threshold in `.burnplan/config.yaml`:
+
+```yaml
+behavior:
+  windowDays: 90
+  editsWithoutReadThreshold: 25
+```
 
 ### Existing documentation is incorporated
 

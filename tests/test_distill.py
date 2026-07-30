@@ -123,3 +123,57 @@ class BuildOrReuseTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BehaviorEvidenceTests(unittest.TestCase):
+    SNAPSHOT = {
+        "schemaVersion": 1,
+        "source": "claude-transcripts",
+        "capturedAt": "20260730T000000Z",
+        "windowDays": 90,
+        "readWindow": 20,
+        "sessions": 4,
+        "editsTotal": 40,
+        "editsWithoutRead": 14,
+        "editsWithoutReadPct": 35.0,
+    }
+
+    def test_fingerprint_changes_with_behavior_but_ignores_captured_at(self):
+        entries = [_entry("20260701T010000Z-a", "sync", "Reason one.")]
+        base = source_fingerprint(entries)
+        with_behavior = source_fingerprint(entries, self.SNAPSHOT)
+        self.assertNotEqual(base, with_behavior)
+        recaptured = dict(self.SNAPSHOT, capturedAt="20260731T120000Z")
+        self.assertEqual(with_behavior, source_fingerprint(entries, recaptured))
+
+    def test_threshold_rule_emitted_at_or_above_threshold(self):
+        rules = distill._behavior_rules(self.SNAPSHOT, threshold=25)
+        self.assertEqual(len(rules), 1)
+        rule = rules[0]
+        self.assertEqual(rule["id"], "behavior-edits-without-read")
+        self.assertIn("35.0%", rule["statement"])
+        self.assertEqual(rule["sourceIds"], ["behavior-evidence"])
+        self.assertEqual(rule["status"], "active")
+
+    def test_no_rule_below_threshold_or_thin_evidence(self):
+        below = dict(self.SNAPSHOT, editsWithoutReadPct=10.0)
+        self.assertEqual(distill._behavior_rules(below, threshold=25), [])
+        thin = dict(self.SNAPSHOT, editsTotal=5)
+        self.assertEqual(distill._behavior_rules(thin, threshold=25), [])
+        self.assertEqual(distill._behavior_rules(None, threshold=25), [])
+
+    def test_build_with_behavior_snapshot_static_path(self):
+        with tempfile.TemporaryDirectory() as raw:
+            out_dir = Path(raw)
+            _write_worklog(out_dir, [_entry("20260701T010000Z-a", "sync", "Transient failures recur.")])
+            artifact = build_or_reuse_rules(
+                out_dir, None, None, allow_model=False, behavior=self.SNAPSHOT, behavior_threshold=25
+            )
+            ids = [rule["id"] for rule in artifact["rules"]]
+            self.assertIn("behavior-edits-without-read", ids)
+            self.assertLessEqual(len(artifact["rules"]), 18)
+            # unchanged inputs reproduce the same artifact
+            again = build_or_reuse_rules(
+                out_dir, None, None, allow_model=False, behavior=self.SNAPSHOT, behavior_threshold=25
+            )
+            self.assertEqual(artifact, again)

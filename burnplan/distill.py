@@ -17,6 +17,7 @@ except ImportError:  # Skyhook < 0.4.0: degrade to static distillation
 
 from .artifacts import load_json_artifact
 from .document import _read_entries, _slug
+from .transcripts import measurement_fields
 
 
 MAX_RULES = 18
@@ -37,9 +38,16 @@ _STOPWORDS = {
 }
 
 
-def source_fingerprint(entries: List[Mapping[str, Any]]) -> str:
+def source_fingerprint(
+    entries: List[Mapping[str, Any]],
+    behavior: Optional[Mapping[str, Any]] = None,
+) -> str:
     ids = sorted(str(entry.get("id", "")) for entry in entries)
-    return hashlib.sha256("\n".join(ids).encode("utf-8")).hexdigest()[:16]
+    payload = "\n".join(ids)
+    measured = measurement_fields(dict(behavior) if behavior else None)
+    if measured:
+        payload += "\n" + json.dumps(measured, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
 def build_or_reuse_rules(
@@ -48,25 +56,27 @@ def build_or_reuse_rules(
     provider_override: Optional[str],
     allow_model: bool,
     refresh: bool = False,
+    behavior: Optional[Mapping[str, Any]] = None,
+    behavior_threshold: int = 25,
 ) -> Dict[str, Any]:
     entries = _read_entries(out_dir / "worklog")
-    fingerprint = source_fingerprint(entries)
+    fingerprint = source_fingerprint(entries, behavior)
     previous = load_json_artifact(out_dir, "agent-rules.json")
     if previous and previous.get("sourceFingerprint") == fingerprint and not refresh:
         return previous
 
     rules: Optional[List[Dict[str, Any]]] = None
     generated_by = "static"
-    if allow_model and chat_json is not None and entries:
+    if allow_model and chat_json is not None and (entries or behavior):
         try:
-            rules = _model_rules(entries, previous, skyhook_cfg, provider_override)
+            rules = _model_rules(entries, previous, skyhook_cfg, provider_override, behavior)
             if rules is not None:
                 generated_by = f"model:{_model_label(skyhook_cfg)}"
         except ModelError as exc:
             print(f"burnplan: rule distillation model failed, using static rules: {exc}", file=sys.stderr)
             rules = None
     if rules is None:
-        rules = _static_rules(entries)
+        rules = (_behavior_rules(behavior, behavior_threshold) + _static_rules(entries))[:MAX_RULES]
     return {
         "schemaVersion": 1,
         "sourceFingerprint": fingerprint,
@@ -112,6 +122,38 @@ def render_agent_rules_markdown(artifact: Mapping[str, Any]) -> str:
         ]
     )
     return "\n".join(lines)
+
+
+def _behavior_rules(
+    behavior: Optional[Mapping[str, Any]],
+    threshold: int,
+) -> List[Dict[str, Any]]:
+    """Deterministic rules from the committed transcript-evidence snapshot.
+
+    One rule today: edits landing without a prior read of the file. Emitted
+    only when the measured rate clears the configured threshold over a
+    meaningful edit count, so a quiet repo never gets a scolding rule.
+    """
+    measured = measurement_fields(dict(behavior) if behavior else None)
+    if not measured:
+        return []
+    edits_total = int(measured.get("editsTotal", 0) or 0)
+    pct = float(measured.get("editsWithoutReadPct", 0.0) or 0.0)
+    if edits_total < 20 or pct < threshold:
+        return []
+    return [
+        {
+            "id": "behavior-edits-without-read",
+            "statement": (
+                f"Read a file before editing it: {pct}% of {edits_total} edits in this "
+                "repository landed without a prior read (measured from Claude session "
+                "transcripts)."
+            ),
+            "area": "",
+            "sourceIds": ["behavior-evidence"],
+            "status": "active",
+        }
+    ]
 
 
 def _static_rules(entries: List[Mapping[str, Any]]) -> List[Dict[str, Any]]:
@@ -172,6 +214,7 @@ def _model_rules(
     previous: Optional[Mapping[str, Any]],
     skyhook_cfg: Any,
     provider_override: Optional[str],
+    behavior: Optional[Mapping[str, Any]] = None,
 ) -> Optional[List[Dict[str, Any]]]:
     if chat_json is None:
         return None
@@ -185,6 +228,13 @@ def _model_rules(
         for entry in entries[:MODEL_ENTRY_LIMIT]
     ]
     previous_rules = list((previous or {}).get("rules") or [])
+    measured = measurement_fields(dict(behavior) if behavior else None)
+    behavior_block = (
+        "\n\nMeasured session behavior for this repository (source id "
+        '"behavior-evidence"):\n' + json.dumps(measured, ensure_ascii=False)
+        if measured
+        else ""
+    )
     messages = [
         {
             "role": "system",
@@ -206,6 +256,7 @@ def _model_rules(
                 + json.dumps(previous_rules, ensure_ascii=False)
                 + "\n\nWorklog entries (newest first):\n"
                 + json.dumps(recent, ensure_ascii=False)
+                + behavior_block
             ),
         },
     ]
@@ -213,6 +264,8 @@ def _model_rules(
     if result is None:
         return None
     valid_ids = {str(entry.get("id", "")) for entry in entries}
+    if measured:
+        valid_ids.add("behavior-evidence")
     recent_areas = {_area(entry) for entry in entries[:RECENT_WINDOW]}
     previous_by_statement = {
         str(rule.get("statement", "")): str(rule.get("id", ""))

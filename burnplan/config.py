@@ -17,12 +17,19 @@ class GuidanceConfig:
 
 
 @dataclass
+class BehaviorConfig:
+    window_days: int = 90
+    edits_without_read_threshold: int = 25
+
+
+@dataclass
 class BurnPlanConfig:
     version: int = 1
     output_dir: str = ".burnplan"
     map_dir: str = ".skyhook"
     quality: QualityConfig = field(default_factory=QualityConfig)
     guidance: GuidanceConfig = field(default_factory=GuidanceConfig)
+    behavior: BehaviorConfig = field(default_factory=BehaviorConfig)
 
 
 def default_config() -> BurnPlanConfig:
@@ -53,6 +60,17 @@ def load_config(repo_root: Path, config_path: Optional[str] = None) -> BurnPlanC
     guidance = data.get("guidance", {})
     if isinstance(guidance, dict):
         cfg.guidance.max_lines = int(guidance.get("maxLines", guidance.get("max_lines", cfg.guidance.max_lines)))
+    behavior = data.get("behavior", {})
+    if isinstance(behavior, dict):
+        cfg.behavior.window_days = int(
+            behavior.get("windowDays", behavior.get("window_days", cfg.behavior.window_days))
+        )
+        cfg.behavior.edits_without_read_threshold = int(
+            behavior.get(
+                "editsWithoutReadThreshold",
+                behavior.get("edits_without_read_threshold", cfg.behavior.edits_without_read_threshold),
+            )
+        )
     return cfg
 
 

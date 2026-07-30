@@ -13,6 +13,7 @@ from skyhook.render import render_route_markdown
 from skyhook.schema import canonical_json as skyhook_canonical_json
 
 from .artifacts import (
+    canonical_json,
     guidance_size_report,
     load_json_artifact,
     output_dir,
@@ -29,6 +30,7 @@ from .interview import build_agent_guidance, build_onboarding, collect_interview
 from .proposals import build_project_proposals, promote, proposals_would_change, write_proposals
 from .quality import analyze_quality
 from .teams import build_assignment_route, load_teams, resolve_behavior, teams_path, write_team_preset
+from .transcripts import SNAPSHOT_NAME, build_behavior_snapshot, measurement_fields
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
@@ -49,6 +51,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             return cmd_promote(args)
         if args.command == "hook":
             return cmd_hook(args)
+        if args.command == "behavior":
+            return cmd_behavior(args)
     except KeyboardInterrupt:
         print("burnplan: interrupted", file=sys.stderr)
         return 130
@@ -87,6 +91,16 @@ def build_parser() -> argparse.ArgumentParser:
     document.add_argument("--area", default=None, help="code area or feature name")
     document.add_argument("--from-git", action="store_true", help="fill --what from git status and diff stats")
     document.add_argument("--dry-run", action="store_true", help="show where entries would be written")
+
+    behavior = sub.add_parser("behavior", help="capture transcript-derived behavioral evidence")
+    behavior_sub = behavior.add_subparsers(dest="behavior_command")
+    behavior_sync = behavior_sub.add_parser(
+        "sync", help="scan Claude session transcripts and write .burnplan/behavior-evidence.json"
+    )
+    add_common_args(behavior_sync, skyhook_provider=False)
+    behavior_sync.add_argument(
+        "--window-days", type=int, default=None, help="override behavior.windowDays from config"
+    )
 
     teams = sub.add_parser("teams", help="manage BurnPlan sub-agent team behavior mappings")
     teams_sub = teams.add_subparsers(dest="teams_command")
@@ -150,12 +164,15 @@ def _run_ratchet(command: str, args: argparse.Namespace) -> int:
     onboarding = build_onboarding(scan, base_map, answers, quality, previous=previous_onboarding)
     ledger = collect_documentation_ledger(out_dir)
     dry_run = getattr(args, "dry_run", False)
+    behavior = load_json_artifact(out_dir, SNAPSHOT_NAME)
     rules = build_or_reuse_rules(
         out_dir,
         skyhook_cfg,
         getattr(args, "provider", None),
         allow_model=not dry_run,
         refresh=getattr(args, "refresh_rules", False),
+        behavior=behavior,
+        behavior_threshold=burn_cfg.behavior.edits_without_read_threshold,
     )
     guidance = build_agent_guidance(base_map, onboarding, quality, ledger, repo_root)
     teams = load_teams(teams_path(out_dir))
@@ -256,6 +273,33 @@ def cmd_hook(args: argparse.Namespace) -> int:
     message = stop_reminder(repo_root, out_dir)
     if message:
         print(message)
+    return 0
+
+
+def cmd_behavior(args: argparse.Namespace) -> int:
+    if getattr(args, "behavior_command", None) != "sync":
+        print("usage: burnplan behavior sync", file=sys.stderr)
+        return 2
+    repo_root, burn_cfg, _skyhook_cfg, out_dir, _map_dir = load_runtime(args)
+    window = args.window_days if args.window_days is not None else burn_cfg.behavior.window_days
+    snapshot = build_behavior_snapshot(repo_root, window)
+    if snapshot is None:
+        print("burnplan: no Claude session transcripts found for this repository; nothing recorded")
+        return 0
+    previous = load_json_artifact(out_dir, SNAPSHOT_NAME)
+    if previous is not None and measurement_fields(previous) == measurement_fields(snapshot):
+        print(
+            f"burnplan: behavior evidence unchanged "
+            f"({snapshot['sessions']} sessions, {snapshot['editsWithoutReadPct']}% edits without a prior read)"
+        )
+        return 0
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / SNAPSHOT_NAME).write_text(canonical_json(snapshot), encoding="utf-8")
+    print(
+        f"burnplan: wrote {SNAPSHOT_NAME}: {snapshot['sessions']} sessions, "
+        f"{snapshot['editsTotal']} edits, {snapshot['editsWithoutReadPct']}% without a prior read "
+        f"(window {window}d)"
+    )
     return 0
 
 

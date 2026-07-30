@@ -1,4 +1,5 @@
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -7,6 +8,7 @@ import json
 import io
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "Skyhook"))
 
@@ -634,3 +636,47 @@ def _commit(root: Path, message: str) -> None:
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BehaviorSyncTests(unittest.TestCase):
+    def test_behavior_sync_writes_snapshot_and_stays_stable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "repo"
+            root.mkdir()
+            _init_repo(root)
+            claude_home = Path(tmp) / "claude-home"
+            munged = re.sub(r"[^A-Za-z0-9]", "-", str(root.resolve()))
+            project = claude_home / "projects" / munged
+            project.mkdir(parents=True)
+            session = {
+                "type": "assistant",
+                "message": {
+                    "content": [
+                        {"type": "tool_use", "name": "Read", "input": {"file_path": "/r/a.py"}},
+                        {"type": "tool_use", "name": "Edit", "input": {"file_path": "/r/a.py"}},
+                        {"type": "tool_use", "name": "Write", "input": {"file_path": "/r/b.py"}},
+                    ]
+                },
+            }
+            (project / "s1.jsonl").write_text(json.dumps(session) + "\n", encoding="utf-8")
+
+            with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(claude_home)}):
+                self.assertEqual(main(["behavior", "sync", "--repo", str(root)]), 0)
+                snapshot_path = root / ".burnplan" / "behavior-evidence.json"
+                snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+                self.assertEqual(snapshot["editsTotal"], 2)
+                self.assertEqual(snapshot["editsWithoutRead"], 1)
+                first_bytes = snapshot_path.read_bytes()
+
+                # a re-sync with unchanged transcripts must not rewrite the file
+                self.assertEqual(main(["behavior", "sync", "--repo", str(root)]), 0)
+                self.assertEqual(snapshot_path.read_bytes(), first_bytes)
+
+    def test_behavior_sync_without_transcripts_is_a_noop(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "repo"
+            root.mkdir()
+            _init_repo(root)
+            with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(Path(tmp) / "empty")}):
+                self.assertEqual(main(["behavior", "sync", "--repo", str(root)]), 0)
+            self.assertFalse((root / ".burnplan" / "behavior-evidence.json").exists())
