@@ -93,8 +93,8 @@ class ScanSessionTests(unittest.TestCase):
 class SnapshotTests(unittest.TestCase):
     def test_project_dir_munges_path(self):
         home = Path("/tmp/claude-home")
-        result = claude_project_dir(Path("/Users/kaleb/Projects/BurnPlan"), home)
-        self.assertEqual(result, home / "projects" / "-Users-kaleb-Projects-BurnPlan")
+        result = claude_project_dir(Path("/Users/dev/Projects/BurnPlan"), home)
+        self.assertEqual(result, home / "projects" / "-Users-dev-Projects-BurnPlan")
 
     def test_snapshot_aggregates_and_windows(self):
         with tempfile.TemporaryDirectory() as raw:
