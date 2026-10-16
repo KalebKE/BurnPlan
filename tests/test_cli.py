@@ -64,6 +64,34 @@ class CliTests(unittest.TestCase):
             self.assertEqual(main(["optimize", "--repo", str(root), "--provider", "static"]), 0)
             self.assertEqual(main(["optimize", "--repo", str(root), "--provider", "static", "--dry-run"]), 0)
 
+    def test_optimize_dry_run_reuses_unchanged_model_map(self):
+        from skyhook.cli import build_map as skyhook_build_map
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _init_repo(root)
+            (root / "README.md").write_text("# Demo\n\nDemo repo.\n", encoding="utf-8")
+            (root / "src").mkdir()
+            source = root / "src" / "main.py"
+            source.write_text("print('hello')\n", encoding="utf-8")
+
+            def model_map(*args, **kwargs):
+                data, scan = skyhook_build_map(*args, **{**kwargs, "provider": "static"})
+                data["scan"]["generatedBy"] = "skyhook"
+                return data, scan
+
+            with mock.patch.dict(os.environ, {"OPENAI_API_KEY": "", "SKYHOOK_API_KEY": ""}):
+                with mock.patch("burnplan.cli.build_map", side_effect=model_map):
+                    self.assertEqual(main(["optimize", "--repo", str(root)]), 0)
+
+                with mock.patch("burnplan.cli.build_map", side_effect=AssertionError("model called")):
+                    self.assertEqual(main(["optimize", "--repo", str(root), "--dry-run"]), 0)
+
+                source.write_text("print('changed')\n", encoding="utf-8")
+                with mock.patch("burnplan.cli.build_map", side_effect=model_map) as rebuild:
+                    self.assertEqual(main(["optimize", "--repo", str(root), "--dry-run"]), 1)
+                    rebuild.assert_called_once()
+
     def test_document_writes_worklog_and_rationale_entries(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
