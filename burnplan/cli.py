@@ -10,7 +10,8 @@ from skyhook.cli import build_map
 from skyhook.config import load_config as load_skyhook_config
 from skyhook.model import ModelError
 from skyhook.render import render_route_markdown
-from skyhook.schema import canonical_json as skyhook_canonical_json
+from skyhook.scanner import scan_repo
+from skyhook.schema import canonical_json as skyhook_canonical_json, validate_map
 
 from .artifacts import (
     canonical_json,
@@ -304,13 +305,35 @@ def cmd_behavior(args: argparse.Namespace) -> int:
 
 
 def build_skyhook_map(repo_root: Path, skyhook_cfg: Any, map_dir: Path, args: argparse.Namespace, error_prefix: str):
+    previous = load_existing_map(map_dir)
+    # A plain dry run compares saved model guidance with the current scan. Re-asking the model
+    # for an unchanged scan would make that comparison nondeterministic. Older maps do not store
+    # a config fingerprint, so configured or explicitly overridden runs still rebuild the map.
+    if (
+        getattr(args, "command", None) == "optimize"
+        and getattr(args, "dry_run", False)
+        and getattr(args, "provider", None) is None
+        and getattr(args, "model", None) is None
+        and getattr(args, "max_files", None) is None
+        and getattr(args, "skyhook_config", None) is None
+        and not (repo_root / ".skyhook" / "config.yaml").exists()
+        and previous is not None
+        and not validate_map(previous)
+        and previous.get("scan", {}).get("generatedBy") == "skyhook"
+    ):
+        scan = scan_repo(repo_root, skyhook_cfg)
+        if (
+            previous["scan"].get("digest") == scan.digest
+            and previous["scan"].get("fileCount") == len(scan.files)
+        ):
+            return previous, scan
     return build_map(
         repo_root,
         skyhook_cfg,
         provider=getattr(args, "provider", None),
         model=getattr(args, "model", None),
         max_files=getattr(args, "max_files", None),
-        previous=load_existing_map(map_dir),
+        previous=previous,
         error_prefix=error_prefix,
     )
 
